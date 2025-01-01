@@ -22,6 +22,21 @@ Even after the installation is complete, the installer offers additional functio
 
 The installer provides a comprehensive suite of tools to manage your Cloudisense deployment efficiently.
 
+
+#### Working with Modules
+---
+
+Modules add functionality to Cloudisense. Modules are packaged as ZIP files containing the module file (`.py`) and its configuration file (`.json`). The installer downloads the package, unzips it, and places the files in their appropriate locations. Cloudisense will then need to be restarted for the changes to take effect.
+
+
+#### Working with Profiles
+---
+
+A profile is a composite package that includes reaction engine rules, shell scripts, a module, and its configuration. A profile is designed to bundle a complete solution together as a single unit. For example, if you wanted Cloudisense to work with a particular software or system, you would create a module, define reaction rules, write shell scripts, and bundle them as a profile. 
+
+When you install a profile via the installer, it will place all the different types of files in their appropriate locations.
+
+
 ### Update (Future)
 
 #### Update Process
