@@ -6,9 +6,6 @@
 
 `cloudisense installer` uses the root's crontab to register itself as an auto-updater. The shell script is then automatically run by the system once a day (at a designated hour) to look for and update the existing `cloudisense` installation. It is important to note that updates can be done manually or automatically. We will discuss various options in the following sections.
 
-A vital part of the update process is the `smartmerge` Python module. This module efficiently merges JSON configuration files during updates, ensuring a seamless transition from the old version to the new one without breaking or corrupting configurations. `smartmerge` also attempts to preserve any edits made to your older configurations.
-
-In auto-update mode, `cloudisense installer` can seamlessly update the `cloudisense` program to the latest version without the need for human intervention, similar to high-level operating system auto-updates.
 
 ## Requirements
 
