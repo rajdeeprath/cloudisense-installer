@@ -16,9 +16,9 @@ The installer script uses a mix of `bash` and `Python 3.7+` to install and updat
 - **Min CPU Speed**: 1 GHz
 - **Min Memory**: 256 MB
 - **CPU Architecture**: 64/32-bit Intel/AMD
-- **Operating System**: RedHat, Ubuntu 16+, CentOS 7+
+- **Operating System**: Debian & Derivatives
 
-**Coming soon**: Support for Raspbian, ARMbian, and Ubuntu for ARM.
+**Coming soon**: Support for Raspian, ARMbian, and Ubuntu/Debian for ARM.
 
 ## How to Use
 
@@ -49,7 +49,7 @@ git --version
 Clone the repository to your system:
 
 ```bash
-git clone https://github.com/connessionetech/cloudisense-installer.git
+git clone https://github.com/rajdeeprath/cloudisense-installer.git
 ```
 
 ### Grant Executable Permissions to the Installer Script
@@ -62,7 +62,7 @@ cd cloudisense-installer && sudo chmod +x *.sh
 
 **Now you are ready to run the installer!**
 
-### Basic Usage (Simple Install)
+### Usage
 
 Run the script:
 
@@ -72,7 +72,7 @@ Run the script:
 
 > **Note**: Do not use `sudo` to run the script. It will prompt for superuser permissions as needed.
 
-The script will request the superuser password. Enter the password to allow the script to continue. If everything is set up correctly, the script will install the program and register a `systemd` service named `cloudisense.service`. The service is auto-started post-installation, but you can use `systemctl` to manage it manually:
+The script will request the superuser password. Enter the password to allow the script to continue. If everything is set up correctly, the script will install the program and register a `systemd` / `supervisor` service named `cloudisense.service`. The service is auto-started post-installation, but you can use `systemctl` to manage it manually:
 
 - **Stop Service**:
 
@@ -216,7 +216,7 @@ The uninstallation process includes the following steps:
 1. Check the system for an existing installation
 2. Remove the `cloudisense` core and modules
 3. Remove any Python virtual environment created
-4. Remove any `systemd` service created
+4. Remove any `systemd` / `supervisor` service created
 5. Delete all installation data
 
 ## Future Roadmap
