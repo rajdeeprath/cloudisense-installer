@@ -3177,12 +3177,43 @@ install_profile()
 				profile_name=$(jq -r '.name' <<< "$result")
 
 		
+				IFS=',' read -r -a add_dependencies <<< "$(jq -r '.dependencies.add[]' <<< "$result" | tr '\n' ',')"
 				IFS=',' read -r -a add_modules <<< "$(jq -r '.modules.add[]' <<< "$result" | tr '\n' ',')"
 				IFS=',' read -r -a remove_modules <<< "$(jq -r '.modules.remove[]' <<< "$result" | tr '\n' ',')"
 				IFS=',' read -r -a add_rules <<< "$(jq -r '.rules.add[]' <<< "$result" | tr '\n' ',')"
 				IFS=',' read -r -a remove_rules <<< "$(jq -r '.rules.remove[]' <<< "$result" | tr '\n' ',')"
 				IFS=',' read -r -a add_scripts <<< "$(jq -r '.scripts.add[]' <<< "$result" | tr '\n' ',')"
 				IFS=',' read -r -a remove_scripts <<< "$(jq -r '.scripts.remove[]' <<< "$result" | tr '\n' ',')"
+
+				
+				# install dependencies
+				local pip=
+				local VENV="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME"
+
+				# Check if the virtual environment folder exists
+				if [ -d "$VENV" ]; then
+					# Check for pip or pip3 inside the virtual environment
+					if [ -x "$VENV/bin/pip3" ]; then
+						pip="$VENV/bin/pip3"
+					elif [ -x "$VENV/bin/pip" ]; then
+						pip="$VENV/bin/pip"
+					fi
+
+					# install dependencies into virtual environment
+					if [ -n "$pip" ]; then						
+						for dependency in "${add_dependencies[@]}"
+						do				
+							dependency=${dependency//$'\n'/} # Remove all newlines.							
+							"$pip" install "$dependency"
+						done
+					else
+						lecho_err "Neither pip3 nor pip found in the virtual environment at $VENV." && exit 1
+					fi
+				else
+					lecho_err "Virtual environment folder $VENV does not exist." && exit 1
+				fi
+
+
 
 				# install required modules
 
