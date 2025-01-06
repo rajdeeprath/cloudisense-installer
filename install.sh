@@ -3149,8 +3149,8 @@ install_profile()
 				local module_conf_source_path="$profile_package_path/modules/conf"
 				local scripts_source_path="$profile_package_path/scripts"
 				local rules_source_path="$profile_package_path/rules"
-				local template_source_path="$profile_package_path/template"
-				local layout_source_path="$profile_package_path/layout"
+				local template_source_path="$profile_package_path/ui/template"
+				local layout_source_path="$profile_package_path/ui/layout"
 				
 				
 				local module_install_path="$base_dir/cdsmaster/modules"
