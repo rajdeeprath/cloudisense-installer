@@ -33,6 +33,7 @@ SPECIFIED_REQUIREMENTS_FILE=
 RASPBERRY_PI=
 PYTHON_VERSION=
 CURRENT_INSTALLATION_PROFILE=
+UIGUIDE_LAYOUT=
 
 
 # GENERAL SETTINGS
@@ -3148,11 +3149,18 @@ install_profile()
 				local module_conf_source_path="$profile_package_path/modules/conf"
 				local scripts_source_path="$profile_package_path/scripts"
 				local rules_source_path="$profile_package_path/rules"
+				local template_source_path="$profile_package_path/template"
+				local layout_source_path="$profile_package_path/layout"
+				
 				
 				local module_install_path="$base_dir/cdsmaster/modules"
 				local module_conf_install_path="$base_dir/cdsmaster/modules/conf"
 				local scripts_install_path="$base_dir/scripts"
 				local rules_install_path="$base_dir/rules"
+				local template_install_path="$base_dir/cdsmaster/ui/template"
+				local layout_install_path="$base_dir/cdsmaster/ui/layout"
+
+				local layout_installed=0
 
 				# extract profile archive to a tmp location
 
@@ -3353,12 +3361,48 @@ install_profile()
 					done
 
 
+					# install template and profile if available
+					
+
+					# Define file paths
+					local source_template="$template_source_path/default.json"
+					local source_layout="$layout_source_path/default.json"
+					local target_template="$template_install_path/default.json"
+					local target_layout="$layout_install_path/default.json"
+
+					# Check if we have template to install
+					if [ -f "$source_template" ]; then
+						# Check if target_template exists and back it up if necessary
+						if [ -f "$target_template" ]; then
+							lecho "Backing up current template"
+							mv "$target_template" "${target_template%.json}.bak"
+						fi
+						# Copy source_template to target_template
+						cp "$source_template" "$target_template"
+						
+						# Check if we have layout to install
+						if [ -f "$source_layout" ]; then
+							# Check if target_layout exists and back it up if necessary
+							if [ -f "$target_layout" ]; then
+							lecho "Backing up current layout"
+							mv "$target_layout" "${target_layout%.json}.bak"
+							fi
+							# Copy source_layout to target_layout
+							cp "$source_layout" "$target_layout"
+							
+							lecho "Layout installed successfully"
+							layout_installed=1
+						fi
+					fi
+
+
+
 					# once eveything is done mark current profile selection 
 					# => store active profile somewhere
 					if [ ! -f "$PROGRAM_INSTALLATION_REPORT_FILE" ]; then
 						echo "No installation report found."
 					else
-						update_installation_meta "$profile_name"
+						update_installation_meta "$profile_name" "$layout_installed"
 					fi
 
 
@@ -3513,6 +3557,9 @@ clear_profile()
 			local module_conf_install_path="$base_dir/cdsmaster/modules/conf"
 			local scripts_install_path="$base_dir/scripts"
 			local rules_install_path="$base_dir/rules"
+			local template_install_path="$base_dir/cdsmaster/ui/template"
+			local layout_install_path="$base_dir/cdsmaster/ui/layout"
+
 
 			# extract profile archive to a tmp location
 
@@ -3597,6 +3644,39 @@ clear_profile()
 			done
 
 
+			# restore previous template & layout
+			# install template and profile if available
+
+			# Define file paths
+			local original_template="$template_install_path/default.bak"
+			local original_layout="$layout_install_path/default.bak"
+			local installed_template="$template_install_path/default.json"
+			local installed_layout="$layout_install_path/default.json"
+
+			if [ "$UIGUIDE_LAYOUT" -eq 1 ]; then
+				# Check if both default.bak files exist
+				if [ -f "$original_template" ] && [ -f "$original_layout" ]; then
+					# Check if default.json exists in both template and layout folders
+					if [ -f "$installed_template" ] && [ -f "$installed_layout" ]; then
+						# Remove the default.json files
+						rm "$installed_template"
+						rm "$installed_layout"
+						
+						# Rename default.bak to default.json in both template and layout folders
+						mv "$original_template" "$installed_template"
+						mv "$original_layout" "$installed_layout"
+						
+						lecho "Reverted template and layout to previous state"
+					else
+						lecho_err "Unknown error! Current layout and/or template not found." && exit 1
+					fi
+				else
+					lecho "No previous layout installation detected. Nothing to restore."
+				fi
+			fi
+
+
+			
 
 			# once eveything is done mark current profile selection 
 			# => store active profile somewhere
@@ -4886,6 +4966,7 @@ write_installation_meta()
 	local subject
 	local interpreterpath
 	local requirements_filename
+	local layout
 
 	now=$(date)
 	installtime=$now
@@ -4895,9 +4976,19 @@ write_installation_meta()
 	subject="python"
 	interpreterpath="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME/bin/python$PYTHON_VERSION"
 	requirements_filename=$(basename -- "$REQUIREMENTS_FILE")
+	layout="$UIGUIDE_LAYOUT"
 	
-	jq -n --arg profile "$profile" --arg interpreterpath "$interpreterpath" --arg pythonversion "$pythonversion" --arg installtime "$installtime" --arg requirements_filename "$requirements_filename" '{install_time: $installtime, python_version: $pythonversion, interpreter: $interpreterpath, requirements: $requirements_filename, profile: $profile}' | tee "$PROGRAM_INSTALLATION_REPORT_FILE" > /dev/null
-	chown -R "$USER": "$PROGRAM_INSTALLATION_REPORT_FILE"
+	jq -n \
+	--arg profile "$profile" \
+	--arg interpreterpath "$interpreterpath" \
+	--arg pythonversion "$pythonversion" \
+	--arg installtime "$installtime" \
+	--arg requirements_filename "$requirements_filename" \
+	--arg layout "$layout" \
+	'{install_time: $installtime, python_version: $pythonversion, interpreter: $interpreterpath, requirements: $requirements_filename, profile: $profile, layout: $layout}' | \
+	tee "$PROGRAM_INSTALLATION_REPORT_FILE" > /dev/null
+
+	seudo chown -R "$USER": "$PROGRAM_INSTALLATION_REPORT_FILE"
 }
 
 
@@ -4925,18 +5016,32 @@ update_installation_meta()
 
 		if [ $# -gt 0 ]; then
 			local profile_name
-			local result
+			local layout_value
 			local tmpfile
+			local jq_filter="."
 
-			profile_name=$1	
-			CURRENT_INSTALLATION_PROFILE=$profile_name
-			result=$(<"$PROGRAM_INSTALLATION_REPORT_FILE")
+			# If the first parameter is set, it's the profile
+			if [ -n "$1" ]; then
+				profile_name=$1
+				CURRENT_INSTALLATION_PROFILE=$profile_name
+				jq_filter="$jq_filter | .profile = \"$CURRENT_INSTALLATION_PROFILE\""
+			fi
+
+			# If the second parameter is set, it's the layout
+			if [ -n "$2" ]; then
+				layout_value=$2
+				UIGUIDE_LAYOUT="$layout_value"
+				jq_filter="$jq_filter | .layout = \"$layout_value\""
+			fi
+
+			# Apply the jq filter to update the JSON file
 			tmpfile="${PROGRAM_INSTALLATION_REPORT_FILE/.json/.tmp}"
-			jq --arg profile_name "$CURRENT_INSTALLATION_PROFILE" '.profile = $profile_name' "$PROGRAM_INSTALLATION_REPORT_FILE" > "$tmpfile"
+			jq "$jq_filter" "$PROGRAM_INSTALLATION_REPORT_FILE" > "$tmpfile"
 			mv "$tmpfile" "$PROGRAM_INSTALLATION_REPORT_FILE"
 		else
 			lecho_err "Minimum of 1 parameter is required!"
-		fi	
+		fi
+
 
 	fi
 }
@@ -4969,7 +5074,7 @@ read_installation_meta()
 		local interpreterpath
 		local requirements_filename
 		local profile
-
+		local layout
 
 		result=$(<"$PROGRAM_INSTALLATION_REPORT_FILE")
 		installtime=$(jq -r '.install_time' <<< "${result}")
@@ -4977,11 +5082,14 @@ read_installation_meta()
 		interpreterpath=$(jq -r '.interpreter' <<< "${result}")
 		requirements_filename=$(jq -r '.requirements' <<< "${result}")
 		profile=$(jq -r '.profile' <<< "${result}")
+		layout=$(jq -r '.layout' <<< "${result}")
 
 		INSTALLATION_PYTHON_VERSION="$pythonversion"
 		PYTHON_VIRTUAL_ENV_INTERPRETER=$interpreterpath
 		PYTHON_REQUIREMENTS_FILENAME=$requirements_filename
 		CURRENT_INSTALLATION_PROFILE="$profile"
+		UIGUIDE_LAYOUT="$layout"
+
 	fi
 }
 
