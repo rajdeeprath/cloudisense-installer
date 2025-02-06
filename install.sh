@@ -1,5 +1,4 @@
 #!/bin/bash
-#!/usr/bin/bash 
 
 
 # Copyright © 2024 Rajdeep Rath. All Rights Reserved.
@@ -54,7 +53,6 @@ PROGRAM_VERSION=
 PROGRAM_ERROR_LOG_FILE_NAME="log/error.log"
 PROGRAM_UPDATE_CRON_HOUR=11
 PROGRAM_SUPPORTED_INTERPRETERS=
-PROGRAM_VERSION=
 PROGRAM_HASH=
 
 
@@ -2304,8 +2302,7 @@ install_pip_dependencies()
 		fi
 
 		echo "Installing: $clean_dependency"
-		pip install "$clean_dependency"
-		if [[ $? -eq 0 ]]; then
+		if pip install "$clean_dependency"; then
 			echo "Successfully installed: $clean_dependency"
 		else
 			echo "Failed to install: $clean_dependency"
@@ -2559,60 +2556,112 @@ unpack_runtime_libraries()
 #		
 #############################################
 # shellcheck disable=SC2034
+# shellcheck disable=SC2155
 get_install_info()
 {
-	local UNIQ
-	UNIQ=$(date +%s)
+	local UNIQ=$(date +%s)
 
-	local response
-	response=$(curl --write-out '%{http_code}' --silent --output /dev/null "$PROGRAM_MANIFEST_LOCATION?$UNIQ")	
+    # Fetch central manifest with a timestamp to avoid caching issues
+	local response=$(curl --write-out '%{http_code}' --silent --output /dev/null "$PROGRAM_MANIFEST_LOCATION?$UNIQ")
 
-	if [[ "$response" -eq 200 ]]; then
-
-		local manifestdata
-		manifestdata=$(curl -H 'Cache-Control: no-cache' -sk "$PROGRAM_MANIFEST_LOCATION?$UNIQ")
-
-		if [ -z "$manifestdata" ]; then 
-			echo "Failed to get manifest data" && exit
-		fi
+    if [[ "$response" -ne 200 ]]; then
+        lecho_err "Failed to fetch central manifest. HTTP response code: $response"
+        exit 1
+    fi
 
 
-		if [ "$PLATFORM_ARCH" == "x86_64" ]; then
-			eval "$(jq -M -r '@sh "package_enabled=\(.payload.platform.x86_64.enabled) package_url=\(.payload.platform.x86_64.url) package_hash=\(.payload.platform.x86_64.md5) package_version=\(.payload.version) supported_interpreters=\(.payload.platform.x86_64.dependencies.interpreters)"' <<< "$manifestdata")"	
-		elif [[ "$PLATFORM_ARCH" == "arm64" || "$PLATFORM_ARCH" == "aarch64" ]]; then
-    		eval "$(jq -M -r '@sh "package_enabled=\(.payload.platform.arm64.enabled) package_url=\(.payload.platform.arm64.url) package_hash=\(.payload.platform.arm64.md5) package_version=\(.payload.version) supported_interpreters=\(.payload.platform.arm64.dependencies.interpreters)"' <<< "$manifestdata")"
-		else
-			lecho_err "Unknown/unsupported cpu architecture!!.Contact support for further assistance."
-			exit
-		fi
-
-
-		# if package is disabled notify and exit	
-		if [ "$package_enabled" = false ] ; then
-			lecho_err "Package installation is unavailable or disabled.Contact support for further assistance."
-			exit
-		fi
-
-			
-		PROGRAM_ARCHIVE_LOCATION=$package_url
-		PROGRAM_VERSION=$package_version		
-		PROGRAM_HASH=$package_hash
-		
-		# Change comma (,) to whitespace and add under braces
-		# Use read -a for splitting the input string into an array
-		IFS=',' read -ra PROGRAM_SUPPORTED_INTERPRETERS <<< "$supported_interpreters"
-		# Properly expand the array elements while printing
-		echo "Supported interpreters: ${PROGRAM_SUPPORTED_INTERPRETERS[*]}"
-
-		echo "Version: $PROGRAM_VERSION"
-
-	else
-		lecho_err "Payload information is unavailable or cannot be accessed.Contact support for further assistance."
-		exit
-	fi
+	# Now fetch the full central manifest content    
+    local central_manifest_response=$(curl -H 'Cache-Control: no-cache' -sk "$PROGRAM_MANIFEST_LOCATION?$UNIQ")
 	
-}
 
+    if [[ -z "$central_manifest_response" ]]; then
+        lecho_err "Failed to fetch central manifest data."
+        exit 1
+    fi
+
+
+	# Extract key information from central manifest
+    local manifest_url version changes
+    manifest_url=$(echo "$central_manifest_response" | jq -r '.manifest')
+    package_version=$(echo "$central_manifest_response" | jq -r '.version')
+    changes=$(echo "$central_manifest_response" | jq -r '.changes')
+
+    if [[ -z "$manifest_url" || -z "$version" ]]; then
+        lecho_err "Central manifest is missing required fields."
+        exit 1
+    fi
+
+	lecho "Central Manifest Read Successfully"
+    lecho "Version: $package_version"
+    lecho "Changes: $changes"
+    lecho "Fetching build manifest from: $manifest_url"
+
+
+	# Fetch the actual build manifest with a timestamp
+    local build_manifest_response=$(curl -H 'Cache-Control: no-cache' -sk "$manifest_url?$UNIQ")	
+
+    if [[ -z "$build_manifest_response" ]]; then
+        lecho_err "Failed to fetch build manifest."
+        exit 1
+    fi
+
+
+	# Extract common payload information
+    local client_enabled client_url platform_section
+    client_enabled=$(echo "$build_manifest_response" | jq -r '.payload.client.enabled')
+    client_url=$(echo "$build_manifest_response" | jq -r '.payload.client.url')
+
+    # Determine platform-specific section
+    if [[ "$PLATFORM_ARCH" == "x86_64" ]]; then
+        platform_section=".payload.platforms.x86_64"
+    elif [[ "$PLATFORM_ARCH" == "aarch64" ]]; then
+        platform_section=".payload.platforms.aarch64"
+    else
+        lecho_err "Unknown/unsupported CPU architecture: $PLATFORM_ARCH"
+        exit 1
+    fi
+
+
+	# Extract platform-specific details
+    local package_enabled package_url package_hash supported_interpreters cleanups
+    package_enabled=$(echo "$build_manifest_response" | jq -r "$platform_section.enabled")
+    package_url=$(echo "$build_manifest_response" | jq -r "$platform_section.url")
+    package_hash=$(echo "$build_manifest_response" | jq -r "$platform_section.md5")
+    supported_interpreters=$(echo "$build_manifest_response" | jq -r "$platform_section.dependencies.interpreters")
+    cleanups=$(echo "$build_manifest_response" | jq -c "$platform_section.cleanups")
+
+
+
+	# Check if package is available
+    if [[ "$package_enabled" == "false" ]]; then
+        lecho_err "Package installation is unavailable or disabled. Contact support for further assistance."
+        exit 1
+    fi
+
+
+	 # Store extracted values
+    PROGRAM_VERSION=$package_version
+    PROGRAM_CHANGES=$changes
+    PROGRAM_ARCHIVE_LOCATION=$package_url
+    PROGRAM_HASH=$package_hash
+    PROGRAM_CLIENT_URL=$client_url
+    PROGRAM_CLEANUPS=$cleanups
+
+
+	# Convert interpreter list into an array
+    IFS=',' read -ra PROGRAM_SUPPORTED_INTERPRETERS <<< "$supported_interpreters"
+
+    # Logging extracted values
+    lecho "Installation Information:"
+    lecho "  - Version: $PROGRAM_VERSION"
+    lecho "  - Changes: $PROGRAM_CHANGES"
+    lecho "  - Client Enabled: $client_enabled"
+    lecho "  - Client URL: $PROGRAM_CLIENT_URL"
+    lecho "  - Platform Package URL: $PROGRAM_ARCHIVE_LOCATION"
+    lecho "  - Package Hash: $PROGRAM_HASH"
+    lecho "  - Supported Interpreters: ${PROGRAM_SUPPORTED_INTERPRETERS[*]}"
+    lecho "  - Cleanups: $PROGRAM_CLEANUPS"	
+}
 
 
 
