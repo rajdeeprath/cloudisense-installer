@@ -610,25 +610,41 @@ empty_line()
 #############################################
 check_python()
 {
-	has_min_python_version=0
+	if is_anaconda_used; then
+		check_conda_python
+	elif is_pyenv_used; then
+		check_pyenv_python
+	else
+		check_system_python
+	fi
+}
 
-	echo "Checking for compatible python installations on system"	
-	for ver in "${PROGRAM_SUPPORTED_INTERPRETERS[@]}"
-	do
-		echo "Checking for python$ver on local system"
-		# Declare the variable first
-		local PYTHON_EXISTS
-		PYTHON_EXISTS=$(which python"$ver")
-		if [[ $PYTHON_EXISTS != *"no python"* ]]; then
-			if [[ $PYTHON_EXISTS == *"python$ver"* ]]; then
-				echo "python$ver found @ $PYTHON_EXISTS"
-				has_min_python_version=1
-				PYTHON_LOCATION=$PYTHON_EXISTS
-				PYTHON_VERSION=$ver # only number
-				break
-			fi
-		fi
-	done
+
+
+check_system_python() {
+    has_min_python_version=0  # Reset flag
+
+    echo "Checking for compatible Python installations on system..."
+    
+    for ver in "${PROGRAM_SUPPORTED_INTERPRETERS[@]}"; do
+        echo "Checking for python$ver on local system..."
+
+        # Find Python binary
+        local PYTHON_EXISTS
+        PYTHON_EXISTS=$(command -v python"$ver")
+
+        # Ensure it is a valid executable before proceeding
+        if [[ -x "$PYTHON_EXISTS" ]]; then
+            echo "python$ver found @ $PYTHON_EXISTS"
+            has_min_python_version=1  # Set global flag
+            PYTHON_LOCATION="$PYTHON_EXISTS"
+            PYTHON_VERSION="$ver"  # Store version
+            return  # Stop searching after finding the first match
+        fi
+    done
+
+    
+	echo "No compatible system Python found."
 }
 
 
@@ -754,6 +770,8 @@ is_pyenv_used() {
 
     return 1  # False, pyenv is not managing Python
 }
+
+
 
 
 
@@ -1172,6 +1190,77 @@ install_python()
 		lecho "Could not install required version of python"
 	fi
 }
+
+
+
+
+
+#############################################
+# Checks if a particular major version of python
+# can be installed by conda
+# Where target_version is passed in as parameter
+# GLOBALS:
+
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+can_install_conda_python() {
+    local target_version="$1"  # Accepts major.minor (e.g., "3.8")
+
+    echo "Checking for the Python $target_version.x availablity in Conda..."
+
+    # Search for available versions in Conda (sorted)
+    local latest_patch_version
+    latest_patch_version=$(conda search "python=$target_version*" --json 2>/dev/null | 
+        grep -o "\"version\": \"${target_version}[^\"]*\"" | 
+        awk -F'"' '{print $4}' | sort -V | tail -n1)
+
+    if [[ -z "$latest_patch_version" ]]; then
+        echo "No available Python version for $target_version.x in Conda."
+        return 1
+    fi
+
+    echo "Latest Python version found: $latest_patch_version"
+    return 0
+}
+
+
+
+
+#############################################
+# Checks if a particular major version of python
+# can be installed by pyenv
+# Where target_version is passed in as parameter
+# GLOBALS:
+
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+can_install_pyenv_python() {
+    local target_version="$1"  # Accepts major.minor (e.g., "3.8")
+
+    echo "Checking for the Python $target_version.x availablity in pyenv..."
+
+    # Get the latest available patch version from pyenv
+    local latest_patch_version
+    latest_patch_version=$(pyenv install --list 2>/dev/null | 
+        grep -E "^\s*${target_version}\.[0-9]+$" | 
+        tr -d ' ' | sort -V | tail -n1)
+
+    if [[ -z "$latest_patch_version" ]]; then
+        echo "No available Python version for $target_version.x in pyenv."
+        return 1
+    fi
+
+    echo "Latest Python version found: $latest_patch_version"
+    return 0
+}
+
+
 
 
 # Private
