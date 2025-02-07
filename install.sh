@@ -1156,6 +1156,131 @@ install_python_additionals_rhl()
 
 
 #############################################
+# Installs miniconda3 (lightweight conda)
+#
+# GLOBALS:
+#		
+# ARGUMENTS:
+#		$1: Python version number.
+# RETURN:
+#	
+#############################################
+install_conda() 
+{
+    echo "Downloading and installing Miniconda..."
+
+    # Set installation directory
+    CONDA_INSTALL_DIR="$HOME/miniconda3"
+    CONDA_INSTALLER="Miniconda3-latest-Linux-x86_64.sh"
+    CONDA_URL="https://repo.anaconda.com/miniconda/$CONDA_INSTALLER"
+
+    # Download Miniconda installer
+    curl -o "$HOME/$CONDA_INSTALLER" "$CONDA_URL"
+
+    # Install Miniconda silently
+    bash "$HOME/$CONDA_INSTALLER" -b -p "$CONDA_INSTALL_DIR"
+
+    # Remove the installer after installation
+    rm "$HOME/$CONDA_INSTALLER"
+
+    echo "Setting up Conda environment variables..."
+    # Detect shell profile
+    if [[ $SHELL == */zsh ]]; then
+        PROFILE_FILE="$HOME/.zshrc"
+    else
+        PROFILE_FILE="$HOME/.bashrc"
+    fi
+
+    # Add Conda to the shell profile if not already added
+    if ! grep -q "export PATH=\"$CONDA_INSTALL_DIR/bin:\$PATH\"" "$PROFILE_FILE"; then
+        {
+            echo "export PATH=\"$CONDA_INSTALL_DIR/bin:\$PATH\""
+            echo "eval \"\$(conda shell.bash hook)\""
+        } >> "$PROFILE_FILE"
+    fi
+
+    echo "Applying Conda configuration..."
+    export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
+    eval "$(conda shell.bash hook)"
+    conda init
+
+    echo "Conda installation completed successfully."
+    return 0
+}
+
+
+
+
+
+#############################################
+# Installs pyenv
+#
+# GLOBALS:
+#		
+# ARGUMENTS:
+#		
+# RETURN:
+#	
+#############################################
+install_pyenv() 
+{
+    echo "Installing dependencies for pyenv..."
+
+
+    # Install dependencies required for pyenv (Debian/Ubuntu)
+    if [[ -f /etc/debian_version ]]; then
+        seudo apt update
+        seudo apt install -y make build-essential libssl-dev zlib1g-dev \
+                            libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
+                            libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
+                            libffi-dev liblzma-dev
+    elif [[ -f /etc/redhat-release ]]; then
+        # Install dependencies for RHEL/CentOS
+        seudo yum install -y gcc gcc-c++ make patch zlib-devel bzip2 bzip2-devel \
+                            readline-devel sqlite sqlite-devel openssl-devel \
+                            libffi-devel xz-devel
+    elif [[ -f /etc/arch-release ]]; then
+        # Install dependencies for Arch Linux
+        seudo pacman -Sy --needed base-devel openssl zlib \
+                               xz tk libffi
+    fi
+
+    echo "Cloning pyenv repository..."
+    git clone https://github.com/pyenv/pyenv.git ~/.pyenv
+
+    echo "Setting up pyenv environment variables..."
+    # Detect the shell and set up pyenv in the correct profile
+    if [[ $SHELL == */zsh ]]; then
+        PROFILE_FILE="$HOME/.zshrc"
+    else
+        PROFILE_FILE="$HOME/.bashrc"
+    fi
+
+    # Add pyenv to shell profile if not already added
+    if ! grep -q "export PYENV_ROOT=\"$HOME/.pyenv\"" "$PROFILE_FILE"; then
+        {
+            echo "export PYENV_ROOT=\"$HOME/.pyenv\""
+            echo "export PATH=\"\$PYENV_ROOT/bin:\$PATH\""
+            echo "eval \"\$(pyenv init --path)\""
+            echo "eval \"\$(pyenv init -)\""
+        } >> "$PROFILE_FILE"
+    fi
+
+    echo "Applying pyenv configuration..."
+    export PYENV_ROOT="$HOME/.pyenv"
+    export PATH="$PYENV_ROOT/bin:$PATH"
+    eval "$(pyenv init --path)"
+    eval "$(pyenv init -)"
+
+    echo "pyenv installation completed successfully."
+    return 0
+}
+
+
+
+
+
+#############################################
 # Installs python core on Debain and RHLE. If
 # installation is successful python_install_success
 # is set to 1, otherwise 0
