@@ -106,9 +106,6 @@ package_hash=
 supported_interpreters=
 __version__=
 
-ANACONDA_USED=0
-PYENV_USED=0
-
 
 #############################################
 # Change directory to the script's directory
@@ -2424,6 +2421,151 @@ check_create_virtual_environment()
 
 	fi
 }
+
+
+
+
+#############################################
+# Check and create virtual environment for cloudisense,
+# using the python version determined with conda.If environment
+# already exists, determine its usability. Then
+# either reuse the same environment or create new.
+# 
+# GLOBALS:
+#		virtual_environment_exists, VENV_FOLDER
+# ARGUMENTS:
+#
+# RETURN:
+#		
+#############################################
+check_create_conda_virtual_environment() {
+    virtual_environment_exists=0  # Reset flag
+
+    # Set Conda environment path
+    VENV_FOLDER="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME"
+
+    # Ensure the base directory exists
+    if [ ! -d "$PYTHON_VIRTUAL_ENV_LOCATION" ]; then
+        mkdir -p "$PYTHON_VIRTUAL_ENV_LOCATION"
+        chown -R "$USER:" "$PYTHON_VIRTUAL_ENV_LOCATION"
+    fi
+
+    # Check if the Conda environment exists
+    if [ ! -d "$VENV_FOLDER" ]; then
+        echo "Creating Conda virtual environment @ $VENV_FOLDER"
+        conda create --prefix "$VENV_FOLDER" python="$PYTHON_VERSION" -y
+
+        if [ $? -eq 0 ]; then
+            echo "Conda virtual environment created successfully."
+            virtual_environment_exists=1
+        else
+            echo "Fatal error! Conda virtual environment could not be created."
+            exit 1
+        fi
+    else
+        echo "Virtual environment folder already exists.. let me check it.." && sleep 1
+    fi
+
+    # Verify Conda environment integrity
+    if [ ! -f "$VENV_FOLDER/bin/python" ] || [ ! -f "$VENV_FOLDER/bin/pip" ]; then
+        echo "Conda virtual environment seems broken. Recreating..."
+        rm -rf "$VENV_FOLDER" && sleep 1
+        check_create_conda_virtual_environment  # Recreate the environment
+    fi
+
+    # Activate the Conda environment
+    echo "Activating Conda virtual environment..."
+    source activate "$VENV_FOLDER"
+
+    # Get Python version in Conda environment
+    local venv_python
+    venv_python=$(python --version 2>/dev/null)
+
+    # Check if Python version matches expected version
+    if [[ "$venv_python" != *"Python $PYTHON_VERSION"* ]]; then
+        echo "Python version mismatch in Conda environment! Recreating..."
+        rm -rf "$VENV_FOLDER" && sleep 1
+        check_create_conda_virtual_environment  # Recreate the environment
+    fi
+
+    echo "Upgrading pip and essential packages..."
+    python -m pip install --upgrade pip
+    pip install --upgrade setuptools wheel
+
+    echo "Conda virtual environment is set up and ready to use."
+    virtual_environment_exists=1
+}
+
+
+
+
+
+#############################################
+# Check and create virtual environment for cloudisense,
+# using the python version determined with pyenv.If environment
+# already exists, determine its usability. Then
+# either reuse the same environment or create new.
+# 
+# GLOBALS:
+#		virtual_environment_exists, VENV_FOLDER
+# ARGUMENTS:
+#
+# RETURN:
+#		
+#############################################
+check_create_pyenv_custom_virtual_environment() 
+{
+    virtual_environment_exists=0  # Reset flag
+
+    # Define custom virtual environment location
+    VENV_FOLDER="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME"
+
+    echo "Checking if pyenv Python version $PYTHON_VERSION is installed..."
+    if ! pyenv versions --bare | grep -q "^$PYTHON_VERSION$"; then
+        echo "Python version $PYTHON_VERSION not found in pyenv. Installing..."
+        pyenv install "$PYTHON_VERSION"
+    fi
+
+    echo "Checking if virtual environment exists at: $VENV_FOLDER"
+    if [ ! -d "$VENV_FOLDER" ]; then
+        echo "Creating virtual environment at $VENV_FOLDER using pyenv Python..."
+        PYENV_VERSION="$PYTHON_VERSION" python -m venv "$VENV_FOLDER"
+    else
+        echo "Virtual environment folder already exists.. verifying it.." && sleep 1
+    fi
+
+    # Ensure the virtual environment is not broken
+    if [ ! -f "$VENV_FOLDER/bin/python" ] || [ ! -f "$VENV_FOLDER/bin/pip" ]; then
+        echo "Virtual environment seems broken. Recreating..."
+        rm -rf "$VENV_FOLDER" && sleep 1
+        check_create_pyenv_custom_virtual_environment  # Recreate the environment
+    fi
+
+    # Activate the virtual environment
+    echo "Activating virtual environment..."
+    source "$VENV_FOLDER/bin/activate"
+
+    # Check Python version in the virtual environment
+    local venv_python
+    venv_python=$(python --version 2>/dev/null)
+
+    if [[ "$venv_python" != *"Python $PYTHON_VERSION"* ]]; then
+        echo "Python version mismatch in virtual environment! Recreating..."
+        rm -rf "$VENV_FOLDER" && sleep 1
+        check_create_pyenv_custom_virtual_environment  # Recreate the environment
+    fi
+
+    echo "Upgrading pip and essential packages..."
+    python -m pip install --upgrade pip
+    pip install --upgrade setuptools wheel
+
+    echo "Custom pyenv virtual environment is set up and ready to use at $VENV_FOLDER."
+    virtual_environment_exists=1
+}
+
+
+
+
 
 
 #############################################
