@@ -106,6 +106,9 @@ package_hash=
 supported_interpreters=
 __version__=
 
+ANACONDA_USED=0
+PYENV_USED=0
+
 
 #############################################
 # Change directory to the script's directory
@@ -593,9 +596,9 @@ empty_line()
 #############################################
 # Check for available supported python versions 
 # on local system, going by the list of possible 
-# versions # provided by PROGRAM_SUPPORTED_INTERPRETERS. 
+# versions provided by PROGRAM_SUPPORTED_INTERPRETERS. 
 # On success PYTHON_VERSION is set to the best match 
-# found.#
+# found.
 #
 # GLOBALS:
 #		has_min_python_version, PROGRAM_SUPPORTED_INTERPRETERS,
@@ -626,6 +629,161 @@ check_python()
 			fi
 		fi
 	done
+}
+
+
+
+
+
+#############################################
+# Check for available supported python versions 
+# in conda, going by the list of possible 
+# versions provided by PROGRAM_SUPPORTED_INTERPRETERS. 
+# On success PYTHON_VERSION is set to the best match 
+# found.
+#
+# GLOBALS:
+#		has_min_python_version, PROGRAM_SUPPORTED_INTERPRETERS,
+#		PYTHON_VERSION, PYTHON_LOCATION
+# ARGUMENTS:
+#		
+# RETURN:
+#	
+#############################################
+check_conda_python() {
+	has_min_python_version=0  # Reset global flag
+    echo "Checking for compatible Python installations in Conda environments..."
+
+    # Loop through each Conda environment path
+    while read -r env_path; do
+        if [[ -f "$env_path/bin/python" ]]; then
+            # Get Python version
+            local PYTHON_VERSION_FOUND
+            PYTHON_VERSION_FOUND=$("$env_path/bin/python" -V 2>&1 | awk '{print $2}' | cut -d'.' -f1,2)  # Extract major.minor
+
+            # Check if this version is supported
+            for ver in "${PROGRAM_SUPPORTED_INTERPRETERS[@]}"; do
+                if [[ "$PYTHON_VERSION_FOUND" == "$ver" ]]; then
+                    echo "Compatible Python $ver found in Conda environment @ $env_path"
+                    has_min_python_version=1  # Set flag
+                    PYTHON_LOCATION="$env_path/bin/python"
+                    PYTHON_VERSION="$ver"
+                    return  # Stop searching after finding the first match
+                fi
+            done
+        fi
+    done < <(conda env list | awk '{print $2}' | grep -E '^/')
+
+   echo "No compatible Python version found in Conda environments."
+}
+
+
+
+
+
+#############################################
+# Check for available supported python versions 
+# in pyenv, going by the list of possible 
+# versions provided by PROGRAM_SUPPORTED_INTERPRETERS. 
+# On success PYTHON_VERSION is set to the best match 
+# found.
+#
+# GLOBALS:
+#		has_min_python_version, PROGRAM_SUPPORTED_INTERPRETERS,
+#		PYTHON_VERSION, PYTHON_LOCATION
+# ARGUMENTS:
+#		
+# RETURN:
+#	
+#############################################
+check_pyenv_python() {
+    has_min_python_version=0  # Reset global flag
+
+    echo "Checking for compatible Python installations in pyenv..."
+
+    # Loop through all installed Python versions in pyenv
+    while read -r py_version; do
+        # Extract only the major.minor version (e.g., 3.9)
+        local PYTHON_VERSION_FOUND
+        PYTHON_VERSION_FOUND=$(echo "$py_version" | cut -d'.' -f1,2)
+
+        # Check if this version is supported
+        for ver in "${PROGRAM_SUPPORTED_INTERPRETERS[@]}"; do
+            if [[ "$PYTHON_VERSION_FOUND" == "$ver" ]]; then
+                echo "Compatible Python $ver found in pyenv."
+                has_min_python_version=1  # Set flag
+                PYTHON_VERSION="$ver"
+                PYTHON_LOCATION="$(pyenv root)/versions/$py_version/bin/python"
+                return  # Stop searching after finding the first match
+            fi
+        done
+    done < <(pyenv versions --bare)
+
+    echo "No compatible Python version found in pyenv."
+}
+
+
+
+
+
+#############################################
+# Check if pyenv is used to manage python 
+#
+# GLOBALS:
+#		
+# ARGUMENTS:
+#		
+# RETURN: 0 (true) | 1 (false)
+#	
+#############################################
+is_pyenv_used() {
+    # Check if 'pyenv' command exists
+    if ! command -v pyenv &> /dev/null; then
+        return 1  # False, pyenv is not installed
+    fi
+
+    # Check if Python executable path is inside pyenv directories
+    if [[ "$(python -c 'import sys; print(sys.executable)')" == *"$HOME/.pyenv/versions/"* ]]; then
+        return 0  # True, pyenv is managing Python
+    fi
+
+    # Check if pyenv is currently setting the global/local version
+    if [[ -n "$(pyenv version-name 2>/dev/null)" ]]; then
+        return 0  # True, pyenv is actively managing Python
+    fi
+
+    return 1  # False, pyenv is not managing Python
+}
+
+
+
+#############################################
+# Check if anaconda is used to manage python 
+#
+# GLOBALS:
+#		
+# ARGUMENTS:
+#		
+# RETURN: 0 (true) | 1 (false)
+#	
+#############################################
+is_anaconda_used() {
+    # Check if 'conda' command exists
+    if ! command -v conda &> /dev/null; then
+        return 1  # False, Conda is not installed
+    fi
+
+    # Check if current Python is from Anaconda
+    if python -c "import sys; print(sys.version)" 2>/dev/null | grep -iq "anaconda\|conda"; then
+        return 0  # True, Anaconda is managing Python
+    fi
+
+    # Check if inside a Conda environment
+    if [[ -n "$CONDA_PREFIX" ]]; then
+        return 0  # True, Conda is active
+    fi
+
+    return 1  # False, Conda is not managing Python
 }
 
 
