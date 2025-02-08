@@ -607,9 +607,7 @@ empty_line()
 #############################################
 check_python()
 {
-	if is_anaconda_used; then
-		check_conda_python
-	elif is_pyenv_used; then
+	if is_pyenv_installed; then
 		check_pyenv_python
 	else
 		check_system_python
@@ -636,60 +634,14 @@ check_system_python() {
             has_min_python_version=1  # Set global flag
             PYTHON_LOCATION="$PYTHON_EXISTS"
             PYTHON_VERSION="$ver"  # Store version
-            return  # Stop searching after finding the first match
+            return  0 # Stop searching after finding the first match
         fi
     done
 
     
 	echo "No compatible system Python found."
+	return  1
 }
-
-
-
-
-
-#############################################
-# Check for available supported python versions 
-# in conda, going by the list of possible 
-# versions provided by PROGRAM_SUPPORTED_INTERPRETERS. 
-# On success PYTHON_VERSION is set to the best match 
-# found.
-#
-# GLOBALS:
-#		has_min_python_version, PROGRAM_SUPPORTED_INTERPRETERS,
-#		PYTHON_VERSION, PYTHON_LOCATION
-# ARGUMENTS:
-#		
-# RETURN:
-#	
-#############################################
-check_conda_python() {
-	has_min_python_version=0  # Reset global flag
-    echo "Checking for compatible Python installations in Conda environments..."
-
-    # Loop through each Conda environment path
-    while read -r env_path; do
-        if [[ -f "$env_path/bin/python" ]]; then
-            # Get Python version
-            local PYTHON_VERSION_FOUND
-            PYTHON_VERSION_FOUND=$("$env_path/bin/python" -V 2>&1 | awk '{print $2}' | cut -d'.' -f1,2)  # Extract major.minor
-
-            # Check if this version is supported
-            for ver in "${PROGRAM_SUPPORTED_INTERPRETERS[@]}"; do
-                if [[ "$PYTHON_VERSION_FOUND" == "$ver" ]]; then
-                    echo "Compatible Python $ver found in Conda environment @ $env_path"
-                    has_min_python_version=1  # Set flag
-                    PYTHON_LOCATION="$env_path/bin/python"
-                    PYTHON_VERSION="$ver"
-                    return  # Stop searching after finding the first match
-                fi
-            done
-        fi
-    done < <(conda env list | awk '{print $2}' | grep -E '^/')
-
-   echo "No compatible Python version found in Conda environments."
-}
-
 
 
 
@@ -727,12 +679,13 @@ check_pyenv_python() {
                 has_min_python_version=1  # Set flag
                 PYTHON_VERSION="$ver"
                 PYTHON_LOCATION="$(pyenv root)/versions/$py_version/bin/python"
-                return  # Stop searching after finding the first match
+                return 0 # Stop searching after finding the first match
             fi
         done
     done < <(pyenv versions --bare)
 
     echo "No compatible Python version found in pyenv."
+	return 1
 }
 
 
@@ -749,7 +702,7 @@ check_pyenv_python() {
 # RETURN: 0 (true) | 1 (false)
 #	
 #############################################
-is_pyenv_used() {
+is_pyenv_installed() {
     # Check if 'pyenv' command exists
     if ! command -v pyenv &> /dev/null; then
         return 1  # False, pyenv is not installed
@@ -766,39 +719,6 @@ is_pyenv_used() {
     fi
 
     return 1  # False, pyenv is not managing Python
-}
-
-
-
-
-
-#############################################
-# Check if anaconda is used to manage python 
-#
-# GLOBALS:
-#		
-# ARGUMENTS:
-#		
-# RETURN: 0 (true) | 1 (false)
-#	
-#############################################
-is_anaconda_used() {
-    # Check if 'conda' command exists
-    if ! command -v conda &> /dev/null; then
-        return 1  # False, Conda is not installed
-    fi
-
-    # Check if current Python is from Anaconda
-    if python -c "import sys; print(sys.version)" 2>/dev/null | grep -iq "anaconda\|conda"; then
-        return 0  # True, Anaconda is managing Python
-    fi
-
-    # Check if inside a Conda environment
-    if [[ -n "$CONDA_PREFIX" ]]; then
-        return 0  # True, Conda is active
-    fi
-
-    return 1  # False, Conda is not managing Python
 }
 
 
@@ -1099,12 +1019,16 @@ ensure_python_additionals()
 {
 	local ver=$1
 
-	if isDebian; then		
-		install_python_additionals_deb "$ver"
+	if is_pyenv_installed; then
+		lecho "Nothing to do here"
 	else
-		 # remove dot from version number for rhle
-		local vernum=${ver//./}  # Output: 123
-		install_python_additionals_rhl "$vernum"
+		if isDebian; then		
+			install_python_additionals_deb "$ver"
+		else
+			# remove dot from version number for rhle
+			local vernum=${ver//./}  # Output: 123
+			install_python_additionals_rhl "$vernum"
+		fi
 	fi
 }
 
@@ -1155,62 +1079,6 @@ install_python_additionals_rhl()
 
 
 
-#############################################
-# Installs miniconda3 (lightweight conda)
-#
-# GLOBALS:
-#		
-# ARGUMENTS:
-#		$1: Python version number.
-# RETURN:
-#	
-#############################################
-install_conda() 
-{
-    echo "Downloading and installing Miniconda..."
-
-    # Set installation directory
-    CONDA_INSTALL_DIR="$HOME/miniconda3"
-    CONDA_INSTALLER="Miniconda3-latest-Linux-x86_64.sh"
-    CONDA_URL="https://repo.anaconda.com/miniconda/$CONDA_INSTALLER"
-
-    # Download Miniconda installer
-    curl -o "$HOME/$CONDA_INSTALLER" "$CONDA_URL"
-
-    # Install Miniconda silently
-    bash "$HOME/$CONDA_INSTALLER" -b -p "$CONDA_INSTALL_DIR"
-
-    # Remove the installer after installation
-    rm "$HOME/$CONDA_INSTALLER"
-
-    echo "Setting up Conda environment variables..."
-    # Detect shell profile
-    if [[ $SHELL == */zsh ]]; then
-        PROFILE_FILE="$HOME/.zshrc"
-    else
-        PROFILE_FILE="$HOME/.bashrc"
-    fi
-
-    # Add Conda to the shell profile if not already added
-    if ! grep -q "export PATH=\"$CONDA_INSTALL_DIR/bin:\$PATH\"" "$PROFILE_FILE"; then
-        {
-            echo "export PATH=\"$CONDA_INSTALL_DIR/bin:\$PATH\""
-            echo "eval \"\$(conda shell.bash hook)\""
-        } >> "$PROFILE_FILE"
-    fi
-
-    echo "Applying Conda configuration..."
-    export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
-    eval "$(conda shell.bash hook)"
-    conda init
-
-    echo "Conda installation completed successfully."
-    return 0
-}
-
-
-
-
 
 #############################################
 # Installs pyenv
@@ -1225,25 +1093,7 @@ install_conda()
 install_pyenv() 
 {
     echo "Installing dependencies for pyenv..."
-
-
-    # Install dependencies required for pyenv (Debian/Ubuntu)
-    if [[ -f /etc/debian_version ]]; then
-        seudo apt update
-        seudo apt install -y make build-essential libssl-dev zlib1g-dev \
-                            libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
-                            libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
-                            libffi-dev liblzma-dev
-    elif [[ -f /etc/redhat-release ]]; then
-        # Install dependencies for RHEL/CentOS
-        seudo yum install -y gcc gcc-c++ make patch zlib-devel bzip2 bzip2-devel \
-                            readline-devel sqlite sqlite-devel openssl-devel \
-                            libffi-devel xz-devel
-    elif [[ -f /etc/arch-release ]]; then
-        # Install dependencies for Arch Linux
-        seudo pacman -Sy --needed base-devel openssl zlib \
-                               xz tk libffi
-    fi
+   
 
     echo "Cloning pyenv repository..."
     git clone https://github.com/pyenv/pyenv.git ~/.pyenv
@@ -1295,11 +1145,11 @@ install_python()
 {	
 	python_install_success=0
 
-	if isDebian; then
-	install_python_deb	
+	if is_pyenv_installed; then
+		install_pyenv_python
 	else
-	install_python_rhl
-	fi
+		install_system_python
+	fi	
 
 	# verify
 	check_python
@@ -1318,9 +1168,10 @@ install_python()
 
 
 #############################################
-# Checks if a particular major version of python
-# can be installed by conda
-# Where target_version is passed in as parameter
+# Checks to see if a particular version of python
+# can be installed from supported list of interpreters, 
+# and then installs it.
+#
 # GLOBALS:
 
 # ARGUMENTS:
@@ -1328,24 +1179,75 @@ install_python()
 # RETURN:
 #	
 #############################################
-can_install_conda_python() {
-    local target_version="$1"  # Accepts major.minor (e.g., "3.8")
+install_pyenv_python()
+{
+	# Check for supported Python versions in the yum repository
+    for version in "${PROGRAM_SUPPORTED_INTERPRETERS[@]}"; do
+        lecho "Checking for python$version in pyenv..."
+        if can_install_pyenv_python "$version"; then
+			lecho "Installing python$version in pyenv..."
+			install_pyenv_python_version "$version"
+			return
+		fi
+    done
 
-    echo "Checking for the Python $target_version.x availablity in Conda..."
+	lecho "Could not install any of the supported version of python in pyenv..."
+}
 
-    # Search for available versions in Conda (sorted)
-    local latest_patch_version
-    latest_patch_version=$(conda search "python=$target_version*" --json 2>/dev/null | 
-        grep -o "\"version\": \"${target_version}[^\"]*\"" | 
-        awk -F'"' '{print $4}' | sort -V | tail -n1)
 
-    if [[ -z "$latest_patch_version" ]]; then
-        echo "No available Python version for $target_version.x in Conda."
+
+
+#############################################
+# Installs specified version of python through 
+# pyenv.
+# GLOBALS:
+
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+install_pyenv_python_version() {
+    local python_version="$1"  # Get the Python version from function argument
+
+    if [[ -z "$python_version" ]]; then
+        echo "Error: No Python version specified. Usage: install_pyenv_python <version>"
         return 1
     fi
 
-    echo "Latest Python version found: $latest_patch_version"
+    # Check if the requested Python version is already installed
+    if pyenv versions --bare | grep -q "^$python_version$"; then
+        echo "Python $python_version is already installed via pyenv."
+    else
+        echo "Installing Python $python_version using pyenv..."
+        pyenv install "$python_version"
+    fi
+
+	# Setting python version to use henceforth
+	PYTHON_VERSION="$python_version"
+    echo "Python $PYTHON_VERSION installation completed successfully via pyenv."
     return 0
+}
+
+
+
+
+#############################################
+# Install system python
+# GLOBALS:
+
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+install_system_python()
+{
+	if isDebian; then
+	install_python_deb	
+	else
+	install_python_rhl
+	fi
 }
 
 
@@ -2469,7 +2371,31 @@ program_exists()
 }
 
 
-# Creates virtual environment for cloudisense
+
+
+#############################################
+# Create virtual environemnt if not exists
+# 
+# GLOBALS:
+#		virtual_environment_exists, VENV_FOLDER
+# ARGUMENTS:
+#
+# RETURN:
+#		
+#############################################
+check_create_virtual_environment()
+{
+	if is_pyenv_installed; then
+		check_create_pyenv_virtual_environment
+	else
+		check_create_system_virtual_environment
+	fi
+}
+
+
+
+
+
 #############################################
 # Check and create virtual environment for cloudisense,
 # using the python version determined.If environment
@@ -2483,7 +2409,7 @@ program_exists()
 # RETURN:
 #		
 #############################################
-check_create_virtual_environment()
+check_create_system_virtual_environment()
 {
 	virtual_environment_exists=0
 
@@ -2522,7 +2448,7 @@ check_create_virtual_environment()
 		if [ ! -f "$VENV_FOLDER/bin/activate" ] || [ ! -f "$VENV_FOLDER/bin/pip" ] || [ ! -f "$VENV_FOLDER/bin/python3" ]; then
 			echo "Virtual environment seems broken. Trying to re-create"
 			rm -rf "$VENV_FOLDER" && sleep 1
-			check_create_virtual_environment # Create virtual environment again
+			check_create_system_virtual_environment # Create virtual environment again
 		else
 			lecho "Activating virtual environment"
 			# shellcheck disable=SC1091
@@ -2537,7 +2463,7 @@ check_create_virtual_environment()
 				echo "Virtual environment has same version of python."
 			else
 				rm -rf "$VENV_FOLDER" && sleep 1
-				check_create_virtual_environment # Create virtual environment again
+				check_create_system_virtual_environment # Create virtual environment again
 			fi
 
 			echo "Virtual environment is folder is ok to use." && sleep 1
@@ -2546,81 +2472,6 @@ check_create_virtual_environment()
 
 	fi
 }
-
-
-
-
-#############################################
-# Check and create virtual environment for cloudisense,
-# using the python version determined with conda.If environment
-# already exists, determine its usability. Then
-# either reuse the same environment or create new.
-# 
-# GLOBALS:
-#		virtual_environment_exists, VENV_FOLDER
-# ARGUMENTS:
-#
-# RETURN:
-#		
-#############################################
-check_create_conda_virtual_environment() {
-    virtual_environment_exists=0  # Reset flag
-
-    # Set Conda environment path
-    VENV_FOLDER="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME"
-
-    # Ensure the base directory exists
-    if [ ! -d "$PYTHON_VIRTUAL_ENV_LOCATION" ]; then
-        mkdir -p "$PYTHON_VIRTUAL_ENV_LOCATION"
-        chown -R "$USER:" "$PYTHON_VIRTUAL_ENV_LOCATION"
-    fi
-
-    # Check if the Conda environment exists
-    if [ ! -d "$VENV_FOLDER" ]; then
-        echo "Creating Conda virtual environment @ $VENV_FOLDER"
-        conda create --prefix "$VENV_FOLDER" python="$PYTHON_VERSION" -y
-
-        if [ $? -eq 0 ]; then
-            echo "Conda virtual environment created successfully."
-            virtual_environment_exists=1
-        else
-            echo "Fatal error! Conda virtual environment could not be created."
-            exit 1
-        fi
-    else
-        echo "Virtual environment folder already exists.. let me check it.." && sleep 1
-    fi
-
-    # Verify Conda environment integrity
-    if [ ! -f "$VENV_FOLDER/bin/python" ] || [ ! -f "$VENV_FOLDER/bin/pip" ]; then
-        echo "Conda virtual environment seems broken. Recreating..."
-        rm -rf "$VENV_FOLDER" && sleep 1
-        check_create_conda_virtual_environment  # Recreate the environment
-    fi
-
-    # Activate the Conda environment
-    echo "Activating Conda virtual environment..."
-    source activate "$VENV_FOLDER"
-
-    # Get Python version in Conda environment
-    local venv_python
-    venv_python=$(python --version 2>/dev/null)
-
-    # Check if Python version matches expected version
-    if [[ "$venv_python" != *"Python $PYTHON_VERSION"* ]]; then
-        echo "Python version mismatch in Conda environment! Recreating..."
-        rm -rf "$VENV_FOLDER" && sleep 1
-        check_create_conda_virtual_environment  # Recreate the environment
-    fi
-
-    echo "Upgrading pip and essential packages..."
-    python -m pip install --upgrade pip
-    pip install --upgrade setuptools wheel
-
-    echo "Conda virtual environment is set up and ready to use."
-    virtual_environment_exists=1
-}
-
 
 
 
@@ -2638,18 +2489,12 @@ check_create_conda_virtual_environment() {
 # RETURN:
 #		
 #############################################
-check_create_pyenv_custom_virtual_environment() 
+check_create_pyenv_virtual_environment() 
 {
     virtual_environment_exists=0  # Reset flag
 
     # Define custom virtual environment location
     VENV_FOLDER="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME"
-
-    echo "Checking if pyenv Python version $PYTHON_VERSION is installed..."
-    if ! pyenv versions --bare | grep -q "^$PYTHON_VERSION$"; then
-        echo "Python version $PYTHON_VERSION not found in pyenv. Installing..."
-        pyenv install "$PYTHON_VERSION"
-    fi
 
     echo "Checking if virtual environment exists at: $VENV_FOLDER"
     if [ ! -d "$VENV_FOLDER" ]; then
@@ -2666,10 +2511,16 @@ check_create_pyenv_custom_virtual_environment()
         check_create_pyenv_custom_virtual_environment  # Recreate the environment
     fi
 
-    # Activate the virtual environment
-    echo "Activating virtual environment..."
-    source "$VENV_FOLDER/bin/activate"
-
+    # Check if the activate script exists before sourcing
+    if [ -f "$VENV_FOLDER/bin/activate" ]; then
+        echo "Activating virtual environment..."
+        # shellcheck disable=SC1091
+        source "$VENV_FOLDER/bin/activate"
+    else
+        echo "Error: Activate script not found in $VENV_FOLDER/bin/. Virtual environment setup may have failed."
+        return 1
+    fi
+	
     # Check Python version in the virtual environment
     local venv_python
     venv_python=$(python --version 2>/dev/null)
@@ -2705,7 +2556,29 @@ check_create_pyenv_custom_virtual_environment()
 #############################################
 activate_virtual_environment()
 {
-	lecho "Activating virtual environment"
+	if is_pyenv_installed; then
+		activate_pyenv_virtual_environment
+	else
+		activate_system_virtual_environment
+	fi
+}
+
+
+
+
+#############################################
+# Activate the system python based virtual environment
+# 
+# GLOBALS:
+#		virtual_environment_valid, VENV_FOLDER
+# ARGUMENTS:
+#
+# RETURN:
+#		
+#############################################
+activate_system_virtual_environment() 
+{
+    lecho "Activating system virtual environment"
 
 	virtual_environment_valid=0
 
@@ -2734,6 +2607,60 @@ activate_virtual_environment()
 		lecho "Oops something is wrong! Virtual environment is invalid"
 	fi	
 }
+
+
+
+
+
+
+#############################################
+# Activate the pyenv based virtual environment
+# 
+# GLOBALS:
+#		virtual_environment_valid, VENV_FOLDER
+# ARGUMENTS:
+#
+# RETURN:
+#		
+#############################################
+activate_custom_pyenv_virtual_environment() 
+{
+    lecho "Activating custom pyenv virtual environment"
+
+    virtual_environment_valid=0  # Reset flag
+
+    # Define custom virtual environment location
+    VENV_FOLDER="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME"
+
+    # Check if the virtual environment exists
+    if [ ! -d "$VENV_FOLDER" ] || [ ! -f "$VENV_FOLDER/bin/activate" ]; then
+        lecho "Error: Custom virtual environment not found or incomplete at $VENV_FOLDER"
+        return 1
+    fi
+
+    # Activate the virtual environment
+    echo "Activating virtual environment at: $VENV_FOLDER"
+    # shellcheck disable=SC1091
+    source "$VENV_FOLDER/bin/activate"
+
+    # Verify if the environment was activated correctly
+    local venv_python
+    venv_python=$(python --version 2>/dev/null)
+
+    if [[ "$venv_python" == *"Python $PYTHON_VERSION"* ]]; then
+        virtual_environment_valid=1
+        lecho "Custom pyenv virtual environment is now active"
+    else
+        lecho "Error: Python version mismatch after activation!"
+        return 1
+    fi
+
+    # Upgrade pip and essential packages
+    echo "Upgrading pip and essential packages..."
+    python -m pip install --upgrade pip
+    pip install --upgrade setuptools wheel
+}
+
 
 
 
@@ -6313,12 +6240,50 @@ prerequisites_python()
 	
 	if [ "$has_min_python_version" -eq 0 ]; then
 		echo "Python not found. Installing required python interpreter..."
-		sleep 2
-
 		install_python
 	else
 		ensure_python_additionals "$PYTHON_VERSION"
 	fi 
+}
+
+
+
+#############################################
+# Checks for and installs pyenv if not found
+# 
+# GLOBALS:
+#		has_min_python_version
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+prerequisites_pyenv()
+{
+	if ! is_pyenv_installed; then
+
+		lecho "Pyenv not found! Installing..."
+
+		# Install dependencies required for pyenv (Debian/Ubuntu)
+		if [[ -f /etc/debian_version ]]; then
+			seudo apt update
+			seudo apt install -y make build-essential libssl-dev zlib1g-dev \
+								libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
+								libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
+								libffi-dev liblzma-dev
+		elif [[ -f /etc/redhat-release ]]; then
+			# Install dependencies for RHEL/CentOS
+			seudo yum install -y gcc gcc-c++ make patch zlib-devel bzip2 bzip2-devel \
+								readline-devel sqlite sqlite-devel openssl-devel \
+								libffi-devel xz-devel
+		elif [[ -f /etc/arch-release ]]; then
+			# Install dependencies for Arch Linux
+			seudo pacman -Sy --needed base-devel openssl zlib \
+								xz tk libffi
+		fi
+	else
+		lecho "Pyenv is already installed on this system"
+	fi
 }
 
 
