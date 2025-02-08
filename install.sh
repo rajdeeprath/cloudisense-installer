@@ -608,15 +608,30 @@ empty_line()
 check_python()
 {
 	if is_pyenv_installed; then
-		check_pyenv_python
-	else
-		check_system_python
-	fi
+        check_pyenv_python  # Use pyenv to check Python
+        return 0
+    fi
+
+    if check_system_python; then
+        return 0  # System Python found, exit successfully
+    fi
+
+    # If no valid system Python is found, install pyenv
+    if install_pyenv; then
+        echo "Pyenv installed successfully. Checking Python again..."
+        check_pyenv_python
+        return 0
+    else
+        echo "Error: Pyenv installation failed!"
+        return 1
+    fi
 }
 
 
 
-check_system_python() {
+
+check_system_python() 
+{
     has_min_python_version=0  # Reset flag
 
     echo "Checking for compatible Python installations on system..."
@@ -3434,7 +3449,7 @@ install_module()
 			wget -O "$module" "$url"
 			unzip "$module" -d "$dest"
 
-
+			# if there is a requirements.txt - install dependencies into virtual environment
 			if [ -f "$module_requirements_file" ]; then
 				# Install dependencies
 				if [[ "$silent_mode" -eq 0 ]]; then
