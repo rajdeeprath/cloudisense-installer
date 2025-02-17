@@ -740,6 +740,28 @@ is_pyenv_installed() {
 
 # Public
 
+#############################################
+# Check if sudo module is available on the 
+# linux system. 
+#
+# GLOBALS:
+#		
+# ARGUMENTS:
+#		
+# RETURN:
+#	
+#############################################
+check_procps()
+{
+	# Check if sudo is installed
+	if command -v procps > /dev/null 2>&1; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+
 
 #############################################
 # Check if sudo module is available on the 
@@ -1646,6 +1668,25 @@ install_python_rhl() {
 
 # Public
 
+#############################################
+# Installs procps on the linux system
+# GLOBALS:
+#
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+install_procps()
+{
+	if isDebian; then
+	install_procps_deb	
+	else
+	echo "procps Not installable"
+	fi		
+}
+
+
 
 #############################################
 # Installs sudo on the linux system
@@ -1805,6 +1846,32 @@ install_jq_rhl()
 	install_jq="$(which jq)";
 	lecho "jq installed at $install_jq"
 }
+
+
+
+
+#############################################
+# Installs procps on Debian
+# GLOBALS:
+#
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+install_procps_deb()
+{
+	local install_procps
+    
+    if apt-get install -y procps; then
+        install_procps="$(which procps)"
+        lecho "procps installed at $install_procps"
+    else
+        lecho "Failed to install procps."
+        return 1  # Indicate failure
+    fi
+}
+
 
 
 
@@ -2886,7 +2953,8 @@ install_from_url()
 	local TMP_DIR
 
 	ARCHIVE_FILE_NAME=$PROGRAM_ARCHIVE_NAME
-	PROGRAM_DOWNLOAD_URL=$(curl -s "$PROGRAM_MANIFEST_LOCATION" | grep -Pom 1 '"url": "\K[^"]*')
+	#PROGRAM_DOWNLOAD_URL=$(curl -s "$PROGRAM_MANIFEST_LOCATION" | grep -Pom 1 '"url": "\K[^"]*')
+	PROGRAM_DOWNLOAD_URL=$PROGRAM_ARCHIVE_LOCATION
 	TMP_DIR=$(mktemp -d -t ci-XXXXXXXXXX)
 
 	lecho "Downloading program url $PROGRAM_DOWNLOAD_URL"
@@ -3037,20 +3105,22 @@ get_install_info()
 
 
 	# Extract key information from central manifest
-    local manifest_url version changes
-    manifest_url=$(echo "$central_manifest_response" | jq -r '.manifest')
-    package_version=$(echo "$central_manifest_response" | jq -r '.version')
-    changes=$(echo "$central_manifest_response" | jq -r '.changes')
+	local manifest_url package_version changes
+	manifest_url=$(echo "$central_manifest_response" | jq -r '.manifest')
+	package_version=$(echo "$central_manifest_response" | jq -r '.version')
+	changes=$(echo "$central_manifest_response" | jq -r '.changes')
 
-    if [[ -z "$manifest_url" || -z "$version" ]]; then
-        lecho_err "Central manifest is missing required fields."
-        exit 1
-    fi
+	# Fix: Check the correct variables
+	if [[ -z "$manifest_url" || -z "$package_version" ]]; then
+		lecho_err "Central manifest is missing required fields."
+		exit 1
+	fi
 
 	lecho "Central Manifest Read Successfully"
-    lecho "Version: $package_version"
-    lecho "Changes: $changes"
-    lecho "Fetching build manifest from: $manifest_url"
+	lecho "Version: $package_version"
+	lecho "Changes: $changes"
+	lecho "Fetching build manifest from: $manifest_url"
+
 
 
 	# Fetch the actual build manifest with a timestamp
@@ -3063,60 +3133,64 @@ get_install_info()
 
 
 	# Extract common payload information
-    local client_enabled client_url platform_section
-    client_enabled=$(echo "$build_manifest_response" | jq -r '.payload.client.enabled')
-    client_url=$(echo "$build_manifest_response" | jq -r '.payload.client.url')
+	local client_enabled client_url platform_section package_version changes
+	client_enabled=$(echo "$build_manifest_response" | jq -r '.payload.client.enabled')
+	client_url=$(echo "$build_manifest_response" | jq -r '.payload.client.url')
 
-    # Determine platform-specific section
-    if [[ "$PLATFORM_ARCH" == "x86_64" ]]; then
-        platform_section=".payload.platforms.x86_64"
-    elif [[ "$PLATFORM_ARCH" == "aarch64" ]]; then
-        platform_section=".payload.platforms.aarch64"
-    else
-        lecho_err "Unknown/unsupported CPU architecture: $PLATFORM_ARCH"
-        exit 1
-    fi
+	# Extract version and changes from manifest
+	package_version=$(echo "$build_manifest_response" | jq -r '.payload.version // "unknown"')
+	changes=$(echo "$build_manifest_response" | jq -r '.changes // "No changes provided"')
 
+	# Determine platform-specific section
+	if [[ "$PLATFORM_ARCH" == "x86_64" ]]; then
+		platform_section=".payload.platforms.x86_64"
+	elif [[ "$PLATFORM_ARCH" == "aarch64" ]]; then
+		platform_section=".payload.platforms.aarch64"
+	else
+		lecho_err "Unknown/unsupported CPU architecture: $PLATFORM_ARCH"
+		exit 1
+	fi
 
 	# Extract platform-specific details
-    local package_enabled package_url package_hash supported_interpreters cleanups
-    package_enabled=$(echo "$build_manifest_response" | jq -r "$platform_section.enabled")
-    package_url=$(echo "$build_manifest_response" | jq -r "$platform_section.url")
-    package_hash=$(echo "$build_manifest_response" | jq -r "$platform_section.md5")
-    supported_interpreters=$(echo "$build_manifest_response" | jq -r "$platform_section.dependencies.interpreters")
-    cleanups=$(echo "$build_manifest_response" | jq -c "$platform_section.cleanups")
-
-
+	local package_enabled package_url package_hash supported_interpreters cleanups
+	package_enabled=$(echo "$build_manifest_response" | jq -r "$platform_section.enabled // false")
+	package_url=$(echo "$build_manifest_response" | jq -r "$platform_section.url // \"\"")
+	package_hash=$(echo "$build_manifest_response" | jq -r "$platform_section.md5 // \"\"")
+	supported_interpreters=$(echo "$build_manifest_response" | jq -r "$platform_section.dependencies.interpreters // \"\"")
+	cleanups=$(echo "$build_manifest_response" | jq -c "$platform_section.cleanups // []")
 
 	# Check if package is available
-    if [[ "$package_enabled" == "false" ]]; then
-        lecho_err "Package installation is unavailable or disabled. Contact support for further assistance."
-        exit 1
-    fi
+	if [[ "$package_enabled" != "true" ]]; then
+		lecho_err "Package installation is unavailable or disabled. Contact support for further assistance."
+		exit 1
+	fi
 
+	# Store extracted values
+	PROGRAM_VERSION=$package_version
+	PROGRAM_CHANGES=$changes
+	PROGRAM_ARCHIVE_LOCATION=$package_url
+	PROGRAM_HASH=$package_hash
+	PROGRAM_CLIENT_URL=$client_url
+	PROGRAM_CLEANUPS=$cleanups
 
-	 # Store extracted values
-    PROGRAM_VERSION=$package_version
-    PROGRAM_CHANGES=$changes
-    PROGRAM_ARCHIVE_LOCATION=$package_url
-    PROGRAM_HASH=$package_hash
-    PROGRAM_CLIENT_URL=$client_url
-    PROGRAM_CLEANUPS=$cleanups
+	# Convert interpreter list into an array (handle empty case)
+	if [[ -n "$supported_interpreters" ]]; then
+		IFS=',' read -ra PROGRAM_SUPPORTED_INTERPRETERS <<< "$supported_interpreters"
+	else
+		PROGRAM_SUPPORTED_INTERPRETERS=()
+	fi
 
+	# Logging extracted values
+	lecho "Installation Information:"
+	lecho "  - Version: $PROGRAM_VERSION"
+	lecho "  - Changes: $PROGRAM_CHANGES"
+	lecho "  - Client Enabled: $client_enabled"
+	lecho "  - Client URL: $PROGRAM_CLIENT_URL"
+	lecho "  - Platform Package URL: $PROGRAM_ARCHIVE_LOCATION"
+	lecho "  - Package Hash: $PROGRAM_HASH"
+	lecho "  - Supported Interpreters: ${PROGRAM_SUPPORTED_INTERPRETERS[*]}"
+	lecho "  - Cleanups: $PROGRAM_CLEANUPS"
 
-	# Convert interpreter list into an array
-    IFS=',' read -ra PROGRAM_SUPPORTED_INTERPRETERS <<< "$supported_interpreters"
-
-    # Logging extracted values
-    lecho "Installation Information:"
-    lecho "  - Version: $PROGRAM_VERSION"
-    lecho "  - Changes: $PROGRAM_CHANGES"
-    lecho "  - Client Enabled: $client_enabled"
-    lecho "  - Client URL: $PROGRAM_CLIENT_URL"
-    lecho "  - Platform Package URL: $PROGRAM_ARCHIVE_LOCATION"
-    lecho "  - Package Hash: $PROGRAM_HASH"
-    lecho "  - Supported Interpreters: ${PROGRAM_SUPPORTED_INTERPRETERS[*]}"
-    lecho "  - Cleanups: $PROGRAM_CLEANUPS"	
 }
 
 
@@ -5156,13 +5230,15 @@ register_service() {
         lecho "Service installed and started successfully with systemd!"    
 
     else
-        lecho "Error: No supported init system found. Attempting to install supervisor."
+
+		lecho "Error: No supported init system found. Attempting to install supervisor."
+		
 		if register_supervisor; then
 			lecho "Service installed and registered with supervisor!"
 		else
 			lecho "Service installation failed!"
 			exit 1
-		fi		
+		fi
     fi
 
     # shellcheck disable=SC2034
@@ -5317,6 +5393,29 @@ unregister_service() {
     else
         lecho "Service script not found at $SERVICE_SCRIPT_PATH. Unregistration skipped."
     fi
+}
+
+
+
+
+#############################################
+# Checks to see if script is running in docker
+# 
+# GLOBALS:
+#
+# ARGUMENTS:
+#
+# RETURN:
+#		true is service is installed, false otherwise
+#	
+#############################################
+is_running_in_docker()
+{
+	if [ -f /.dockerenv ] || grep -qE "/docker|/lxc" /proc/1/cgroup 2>/dev/null; then
+		return 0
+	else
+		return 1
+	fi
 }
 
 
@@ -5729,13 +5828,22 @@ post_download_install()
 				fi
 				
 				# Install
-				register_as_service 1				
-
-				if $PROGRAM_SERVICE_AUTOSTART; then
-					start_service
+				if is_running_in_docker; then
+					local interpreterpath="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME/bin/python$PYTHON_VERSION"
+					lecho "Inside docker! Run program using '$interpreterpath $DEFAULT_PROGRAM_PATH/$PYTHON_MAIN_FILE'"
 				else
-					prompt_start_service
+					register_as_service 1				
 				fi
+
+
+				if ! is_running_in_docker; then
+					if $PROGRAM_SERVICE_AUTOSTART; then
+						start_service
+					else
+						prompt_start_service
+					fi			
+				fi
+				
 			fi
 
 			# register cron for update
@@ -6167,6 +6275,7 @@ prerequisites()
 	prerequisites_update
 
 	prerequisites_sudo	
+	prerequisites_procps
 	prerequisites_jq
 	#prerequisites_git	
 	prerequisites_unzip
@@ -6357,6 +6466,30 @@ prerequisites_update_rhl()
 {
 	seudo yum -y update
 	seudo yum install -y yum-utils
+}
+
+
+
+#############################################
+# Checks for and installs procps if not found
+# 
+# GLOBALS:
+#		
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+prerequisites_procps()
+{
+    # Check if sudo is installed by running check_sudo
+    if check_procps; then
+		echo -e "procps \u2714"
+    else
+        echo "Installing procps..."
+        sleep 2
+        install_procps
+    fi
 }
 
 
