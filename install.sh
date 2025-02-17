@@ -96,6 +96,7 @@ python_install_success=0
 virtual_environment_exists=0
 virtual_environment_valid=0
 latest_download_success=0
+client_download_success=0
 service_install_success=0
 module_install_success=0
 
@@ -4827,6 +4828,67 @@ update()
 
 
 #############################################
+# Installs cloudisense client
+# 
+# GLOBALS:
+#		DEFAULT_PROGRAM_PATH
+#
+# ARGUMENTS:
+#
+# RETURN:
+#		
+#############################################
+install_client() 
+{
+    local client_url="$PROGRAM_CLIENT_URL"
+    local client_dest="$DEFAULT_PROGRAM_PATH/cdsmaster/client"
+    local tmp_dir=$(mktemp -d -t client-download-XXXXXXXXXX)
+    local client_archive="$tmp_dir/cloudisense.zip"
+
+    # Ensure destination folder exists
+    if [[ ! -d "$client_dest" ]]; then
+        lecho "Creating client directory at $client_dest..."
+        mkdir -p "$client_dest"
+    fi
+
+    # Validate client URL
+    if [[ -z "$client_url" || "$client_url" == "null" ]]; then
+        lecho_err "Client URL is not defined or invalid. Skipping client installation."
+        return 1
+    fi
+
+    lecho "Downloading client from: $client_url"
+
+    # Download client archive
+    if ! curl -o "$client_archive" --fail --silent --show-error "$client_url"; then
+        lecho_err "Failed to download client package. Please check the URL or network connection."
+        return 1
+    fi
+
+    lecho "Client package downloaded successfully."
+
+    # Extract client archive
+    lecho "Extracting client package to $client_dest..."
+    if ! unzip -o "$client_archive" -d "$client_dest"; then
+        lecho_err "Failed to extract client package."
+        return 1
+    fi
+
+    # Set appropriate permissions
+    chown -R "$USER":"$USER" "$client_dest"
+    chmod -R 755 "$client_dest"
+
+    lecho "✅ Cloudisense client installed successfully at $client_dest."
+
+    # Cleanup
+    rm -rf "$tmp_dir"
+}
+
+
+
+
+
+#############################################
 # Installs cloudisense
 # 
 # GLOBALS:
@@ -4839,8 +4901,8 @@ update()
 #############################################
 auto_install_program()
 {
-
 	latest_download_success=0
+	client_download_success=0
 
 
 	# Download zip or clone from repo based on config
@@ -4855,12 +4917,22 @@ auto_install_program()
 	fi
 
 
-	lecho "install_from_url"
+	lecho "Installing program"
 	install_from_url
 		
 
 	if [ "$latest_download_success" -eq 0 ]; then
 		lecho_err "Failed to get distribution from source. Please contact support!"
+		empty_pause
+	fi
+
+
+	lecho "Installing client"
+	install_client
+
+
+	if [ "$client_download_success" -eq 0 ]; then
+		lecho_err "Failed to get client distribution from source. Please contact support!"
 		empty_pause
 	fi
 
