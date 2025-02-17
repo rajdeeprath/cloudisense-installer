@@ -2510,6 +2510,7 @@ check_create_system_virtual_environment()
 	$python -m pip install --upgrade pip
 	$pipver install --upgrade setuptools wheel pip
 	
+	
 
 	if [ ! -d "$VENV_FOLDER" ]; then
 
@@ -2673,7 +2674,7 @@ activate_system_virtual_environment()
 		local pipver
 		pipver=$(which pip3)		
 
-		$pipver install --upgrade setuptools wheel
+		$pipver install --upgrade setuptools wheel pip
 
 		local path
 		path=$(pip -V)
