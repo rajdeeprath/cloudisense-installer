@@ -54,6 +54,7 @@ PROGRAM_ERROR_LOG_FILE_NAME="log/error.log"
 PROGRAM_UPDATE_CRON_HOUR=11
 PROGRAM_SUPPORTED_INTERPRETERS=
 PROGRAM_HASH=
+CLIENT_INSTALL=
 
 
 # LOGGING
@@ -64,6 +65,7 @@ LOGGING=false
 
 
 # shell argument variables
+args_install_client_request=0
 args_module_request=
 args_update_request=
 args_update_mode=
@@ -2641,7 +2643,7 @@ check_create_pyenv_virtual_environment()
 activate_virtual_environment()
 {
 	if is_pyenv_installed; then
-		activate_pyenv_virtual_environment
+		activate_custom_pyenv_virtual_environment
 	else
 		activate_system_virtual_environment
 	fi
@@ -4927,8 +4929,10 @@ auto_install_program()
 	fi
 
 
-	lecho "Installing client"
-	install_client
+	if [[ "$CLIENT_INSTALL" -eq 1 ]]; then
+		lecho "Installing client"
+		install_client
+	fi
 
 
 	if [ "$client_download_success" -eq 0 ]; then
@@ -7016,6 +7020,16 @@ validate_args()
 	fi
 
 
+	# Validate client installation request
+	if [[ "$args_install_client_request" -eq 1 ]]; then
+		if [[ "$args_install_request" -ne 1 ]]; then
+			echo "Error: The -c | --client option must be used with -i | --install."
+			exit 1
+		fi
+		CLIENT_INSTALL=1
+	fi
+
+
 
 	# if module installation requested
 	if [[ "$args_module_request" -eq 1 ]]; then
@@ -7052,59 +7066,113 @@ validate_args()
 
 
 #############################################
-# Prints usage instructions for the  script
+# Prints usage instructions for the script
 # 
 # GLOBALS:
 #		
 # ARGUMENTS:
 #
 # RETURN:
-#	
+#		Prints help message and exits
 #############################################
-usage()
-{	
-	echo "usage: bash ./install.sh -<flag> <value>"
-	echo "-u    | --update      	(-1|0|1)					Update mode"
-	echo "-r    | --remove										Uninstall program"
-	echo "-d    | --dependencies  (requirements file name)    	Requirements file to use"	
-	echo "-h    | --help                                		Brings up this menu"
+usage() {	
+    echo "Usage: bash ./install.sh [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  -u, --update [MODE]       Update mode:"
+    echo "                               -1 : Uninstall program"
+    echo "                                0 : Install program"
+    echo "                                1 : Update existing installation"
+    echo ""
+    echo "  -r, --remove              Uninstall Cloudisense completely"
+    echo "  -m, --module [NAME]       Install a specific module"
+    echo "  -p, --profile [NAME]      Install a specific profile"
+    echo "  -d, --dependencies [FILE] Specify a custom requirements file"
+    echo "  -i, --install             Perform a fresh installation"
+    echo "  -c, --client              Install the client (must be used with -i)"
+    echo "  -h, --help                Show this help message and exit"
+    echo ""
+    echo "Examples:"
+    echo "  bash ./install.sh -u 1       # Update existing installation"
+    echo "  bash ./install.sh -m module1 # Install module1"
+    echo "  bash ./install.sh -p profile # Install profile"
+    echo "  bash ./install.sh -i -c      # Install program and client"
+    echo "  bash ./install.sh -r         # Remove the program"
+    echo ""
+    exit 0
 }
 
 
-# grab any shell arguments
+
+
 # shellcheck disable=SC2034
-while getopts 'm:u:p:irde:h' o; do
-    case "${o}" in
-		m) 
-			args_module_request=1
-			args_module_name="${OPTARG}"		
-		;;
-		p) 
-			args_profile_request=1
-			args_profile_name="${OPTARG}"		
-		;;
-		u) 
-			args_update_request=1
-			args_update_mode=${OPTARG}
-		;;
-		i) 
-			args_install_request=1
-			args_update_mode=0
-		;;
-		r) 
-			args_update_mode=-1
-		;;
-		d)
-			args_requirements_file="${OPTARG}"
-		;;
-		#e)
-		#	args_enable_disable="${OPTARG}"
-		#;;
-		h|*)
-			usage
-			exit 1
-		;;
-  esac
+# Grab any shell arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -m|--module)
+            if [[ -n "$2" && "$2" != -* ]]; then
+                args_module_request=1
+                args_module_name="$2"
+                shift 2
+            else
+                echo "Error: Missing module name for -m|--module option."
+                usage
+            fi
+        ;;
+        -p|--profile)
+            if [[ -n "$2" && "$2" != -* ]]; then
+                args_profile_request=1
+                args_profile_name="$2"
+                shift 2
+            else
+                echo "Error: Missing profile name for -p|--profile option."
+                usage
+            fi
+        ;;
+        -u|--update)
+            if [[ -n "$2" && "$2" =~ ^-?[0-1]$ ]]; then
+                args_update_request=1
+                args_update_mode="$2"
+                shift 2
+            else
+                echo "Error: Invalid update mode for -u|--update. Allowed values: -1, 0, 1."
+                usage
+            fi
+        ;;
+        -i|--install)
+            args_install_request=1
+            args_update_mode=0
+            shift
+        ;;
+        -c|--client)
+            if [[ $args_install_request -eq 0 ]]; then
+                echo "Error: The -c | --client option must be used with -i | --install."
+                usage
+            fi
+            args_install_client_request=1
+            shift
+        ;;
+        -r|--remove)
+            args_update_mode=-1
+            shift
+        ;;
+        -d|--dependencies)
+            if [[ -n "$2" && "$2" != -* ]]; then
+                args_requirements_file="$2"
+                shift 2
+            else
+                echo "Error: Missing file name for -d|--dependencies option."
+                usage
+            fi
+        ;;
+        -h|--help)
+            usage
+        ;;
+        *)
+            echo "Error: Unknown option $1"
+            usage
+        ;;
+    esac
 done
 shift $(( OPTIND - 1 ))
 
