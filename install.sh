@@ -4842,6 +4842,8 @@ update()
 #############################################
 install_client() 
 {
+	client_download_success=0
+
     local client_url="$PROGRAM_CLIENT_URL"
     local client_dest="$DEFAULT_PROGRAM_PATH/cdsmaster/client"
     local tmp_dir=$(mktemp -d -t client-download-XXXXXXXXXX)
@@ -4881,9 +4883,11 @@ install_client()
     chmod -R 755 "$client_dest"
 
     lecho "✅ Cloudisense client installed successfully at $client_dest."
+	client_download_success=1
 
     # Cleanup
     rm -rf "$tmp_dir"
+	
 }
 
 
