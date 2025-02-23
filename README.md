@@ -70,6 +70,21 @@ Run the script:
 ./install.sh
 ```
 
+or
+
+
+```bash
+./install.sh -i
+```
+
+or
+
+With client install:
+
+```bash
+./install.sh -i -c
+```
+
 > **Note**: Do not use `sudo` to run the script. It will prompt for superuser permissions as needed.
 
 The script will request the superuser password. Enter the password to allow the script to continue. If everything is set up correctly, the script will install the program and register a `systemd` / `supervisor` service named `cloudisense.service`. The service is auto-started post-installation, but you can use `systemctl` to manage it manually:
@@ -85,6 +100,12 @@ The script will request the superuser password. Enter the password to allow the 
   ```bash
   sudo systemctl start cloudisense.service
   ```
+
+#### Docker
+
+when `init system` is not available, the script can be run using the path of the interpreter and the path cloudisense main script as parameter.
+
+
 
 ### Arguments
 

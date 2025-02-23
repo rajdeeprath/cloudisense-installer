@@ -1091,7 +1091,12 @@ install_python_additionals_deb()
     local ver=$1
 
 	lecho "Installing additional dependencies"
-    seudo apt-get install -y python3-pip python"$ver"-dev python"$ver"-venv python3-venv python3-testresources
+
+	if apt-cache show python"$ver"-venv > /dev/null 2>&1; then
+		seudo apt-get install -y python"$ver"-venv
+	fi
+	
+    seudo apt-get install -y python3-pip python"$ver"-dev python3-venv python3-testresources
 }
 
 
@@ -4929,20 +4934,19 @@ auto_install_program()
 
 	if [ "$latest_download_success" -eq 0 ]; then
 		lecho_err "Failed to get distribution from source. Please contact support!"
-		empty_pause
+		empty_pause && exit
 	fi
 
 
 	if [[ "$CLIENT_INSTALL" -eq 1 ]]; then
 		lecho "Installing client"
 		install_client
-	fi
 
-
-	if [ "$client_download_success" -eq 0 ]; then
-		lecho_err "Failed to get client distribution from source. Please contact support!"
-		empty_pause
-	fi
+		if [ "$client_download_success" -eq 0 ]; then
+			lecho_err "Failed to get client distribution from source. Please contact support!"
+			empty_pause && exit
+		fi
+	fi	
 
 
 	lecho "Program installed successfully!"
@@ -5927,6 +5931,8 @@ post_download_install()
 				
 			fi
 
+			post_update_deb
+
 			# register cron for update
 			# deregister_updater && register_updater
 		else
@@ -6527,9 +6533,29 @@ prerequisites_update()
 #############################################
 prerequisites_update_deb()
 {	
+	sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list	
 	seudo apt-get update -qq
 	seudo apt-get install -y software-properties-common 
 }
+
+
+
+
+#############################################
+# cleans up apt install remains
+# 
+# GLOBALS:
+#
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+post_update_deb()
+{	
+	seudo apt-get clean && rm -rf /var/lib/apt/lists/*
+}
+
 
 
 

@@ -3,11 +3,9 @@
 
 
 # start containr
-sudo docker run -it -v /home/username/Documents/GitHub/cloudisense-installer:/app ubuntu:20.04
-
+sudo docker run --rm -it -v "$PWD:/app" -w /app python:3.8-slim bash
 
 ## after you are in shell
- cd /app
  chmod +x *.sh
  ./install.sh
 
