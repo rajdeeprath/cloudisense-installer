@@ -1,5 +1,4 @@
 #!/bin/bash
-#!/usr/bin/bash 
 
 
 # Copyright © 2024 Rajdeep Rath. All Rights Reserved.
@@ -54,8 +53,8 @@ PROGRAM_VERSION=
 PROGRAM_ERROR_LOG_FILE_NAME="log/error.log"
 PROGRAM_UPDATE_CRON_HOUR=11
 PROGRAM_SUPPORTED_INTERPRETERS=
-PROGRAM_VERSION=
 PROGRAM_HASH=
+CLIENT_INSTALL=
 
 
 # LOGGING
@@ -66,6 +65,7 @@ LOGGING=false
 
 
 # shell argument variables
+args_install_client_request=0
 args_module_request=
 args_update_request=
 args_update_mode=
@@ -98,6 +98,7 @@ python_install_success=0
 virtual_environment_exists=0
 virtual_environment_valid=0
 latest_download_success=0
+client_download_success=0
 service_install_success=0
 module_install_success=0
 
@@ -595,9 +596,9 @@ empty_line()
 #############################################
 # Check for available supported python versions 
 # on local system, going by the list of possible 
-# versions # provided by PROGRAM_SUPPORTED_INTERPRETERS. 
+# versions provided by PROGRAM_SUPPORTED_INTERPRETERS. 
 # On success PYTHON_VERSION is set to the best match 
-# found.#
+# found.
 #
 # GLOBALS:
 #		has_min_python_version, PROGRAM_SUPPORTED_INTERPRETERS,
@@ -609,30 +610,160 @@ empty_line()
 #############################################
 check_python()
 {
-	has_min_python_version=0
+	if is_pyenv_installed; then
+        check_pyenv_python  # Use pyenv to check Python
+        return 0
+    fi
 
-	echo "Checking for compatible python installations on system"	
-	for ver in "${PROGRAM_SUPPORTED_INTERPRETERS[@]}"
-	do
-		echo "Checking for python$ver on local system"
-		# Declare the variable first
-		local PYTHON_EXISTS
-		PYTHON_EXISTS=$(which python"$ver")
-		if [[ $PYTHON_EXISTS != *"no python"* ]]; then
-			if [[ $PYTHON_EXISTS == *"python$ver"* ]]; then
-				echo "python$ver found @ $PYTHON_EXISTS"
-				has_min_python_version=1
-				PYTHON_LOCATION=$PYTHON_EXISTS
-				PYTHON_VERSION=$ver # only number
-				break
-			fi
-		fi
-	done
+    if check_system_python; then
+        return 0  # System Python found, exit successfully
+    fi
+
+    # If no valid system Python is found, install pyenv
+    if install_pyenv; then
+        echo "Pyenv installed successfully. Checking Python again..."
+        check_pyenv_python
+        return 0
+    else
+        echo "Error: Pyenv installation failed!"
+        return 1
+    fi
+}
+
+
+
+
+check_system_python() 
+{
+    has_min_python_version=0  # Reset flag
+
+    echo "Checking for compatible Python installations on system..."
+    
+    for ver in "${PROGRAM_SUPPORTED_INTERPRETERS[@]}"; do
+        echo "Checking for python$ver on local system..."
+
+        # Find Python binary
+        local PYTHON_EXISTS
+        PYTHON_EXISTS=$(command -v python"$ver")
+
+        # Ensure it is a valid executable before proceeding
+        if [[ -x "$PYTHON_EXISTS" ]]; then
+            echo "python$ver found @ $PYTHON_EXISTS"
+            has_min_python_version=1  # Set global flag
+            PYTHON_LOCATION="$PYTHON_EXISTS"
+            PYTHON_VERSION="$ver"  # Store version
+            return  0 # Stop searching after finding the first match
+        fi
+    done
+
+    
+	echo "No compatible system Python found."
+	return  1
+}
+
+
+
+
+#############################################
+# Check for available supported python versions 
+# in pyenv, going by the list of possible 
+# versions provided by PROGRAM_SUPPORTED_INTERPRETERS. 
+# On success PYTHON_VERSION is set to the best match 
+# found.
+#
+# GLOBALS:
+#		has_min_python_version, PROGRAM_SUPPORTED_INTERPRETERS,
+#		PYTHON_VERSION, PYTHON_LOCATION
+# ARGUMENTS:
+#		
+# RETURN:
+#	
+#############################################
+check_pyenv_python() {
+    has_min_python_version=0  # Reset global flag
+
+    echo "Checking for compatible Python installations in pyenv..."
+
+    # Loop through all installed Python versions in pyenv
+    while read -r py_version; do
+        # Extract only the major.minor version (e.g., 3.9)
+        local PYTHON_VERSION_FOUND
+        PYTHON_VERSION_FOUND=$(echo "$py_version" | cut -d'.' -f1,2)
+
+        # Check if this version is supported
+        for ver in "${PROGRAM_SUPPORTED_INTERPRETERS[@]}"; do
+            if [[ "$PYTHON_VERSION_FOUND" == "$ver" ]]; then
+                echo "Compatible Python $ver found in pyenv."
+                has_min_python_version=1  # Set flag
+                PYTHON_VERSION="$ver"
+                PYTHON_LOCATION="$(pyenv root)/versions/$py_version/bin/python"
+                return 0 # Stop searching after finding the first match
+            fi
+        done
+    done < <(pyenv versions --bare)
+
+    echo "No compatible Python version found in pyenv."
+	return 1
+}
+
+
+
+
+
+#############################################
+# Check if pyenv is used to manage python 
+#
+# GLOBALS:
+#		
+# ARGUMENTS:
+#		
+# RETURN: 0 (true) | 1 (false)
+#	
+#############################################
+is_pyenv_installed() {
+    # Check if 'pyenv' command exists
+    if ! command -v pyenv &> /dev/null; then
+        return 1  # False, pyenv is not installed
+    fi
+
+    # Check if Python executable path is inside pyenv directories
+    if [[ "$(python -c 'import sys; print(sys.executable)')" == *"$HOME/.pyenv/versions/"* ]]; then
+        return 0  # True, pyenv is managing Python
+    fi
+
+    # Check if pyenv is currently setting the global/local version
+    if [[ -n "$(pyenv version-name 2>/dev/null)" ]]; then
+        return 0  # True, pyenv is actively managing Python
+    fi
+
+    return 1  # False, pyenv is not managing Python
 }
 
 
 
 # Public
+
+#############################################
+# Check if sudo module is available on the 
+# linux system. 
+#
+# GLOBALS:
+#		
+# ARGUMENTS:
+#		
+# RETURN:
+#	
+#############################################
+check_procps()
+{
+	# Check if sudo is installed
+	if command -v procps > /dev/null 2>&1; then
+		return 0
+	else
+		return 1
+	fi
+}
+
 
 
 #############################################
@@ -928,12 +1059,16 @@ ensure_python_additionals()
 {
 	local ver=$1
 
-	if isDebian; then		
-		install_python_additionals_deb "$ver"
+	if is_pyenv_installed; then
+		lecho "Nothing to do here"
 	else
-		 # remove dot from version number for rhle
-		local vernum=${ver//./}  # Output: 123
-		install_python_additionals_rhl "$vernum"
+		if isDebian; then		
+			install_python_additionals_deb "$ver"
+		else
+			# remove dot from version number for rhle
+			local vernum=${ver//./}  # Output: 123
+			install_python_additionals_rhl "$vernum"
+		fi
 	fi
 }
 
@@ -951,13 +1086,25 @@ ensure_python_additionals()
 # RETURN:
 #	
 #############################################
-install_python_additionals_deb()
-{
+install_python_additionals_deb() {
     local ver=$1
 
-	lecho "Installing additional dependencies"
-    seudo apt-get install -y python3-pip python"$ver"-dev python"$ver"-venv python3-venv python3-testresources
+    lecho "Installing additional dependencies"
+
+    # Check and install python version-specific venv if available
+    if apt-cache madison python"$ver"-venv | grep -q "python$ver-venv"; then
+        seudo apt-get install -y python"$ver"-venv
+    fi
+
+    # Check and install python version-specific dev package if available
+    if apt-cache madison python"$ver"-dev | grep -q "python$ver-dev"; then
+        seudo apt-get install -y python"$ver"-dev
+    fi
+
+    # Install common Python packages
+    seudo apt-get install -y python3-pip python3-venv python3-testresources
 }
+
 
 
 
@@ -984,6 +1131,57 @@ install_python_additionals_rhl()
 
 
 
+
+#############################################
+# Installs pyenv
+#
+# GLOBALS:
+#		
+# ARGUMENTS:
+#		
+# RETURN:
+#	
+#############################################
+install_pyenv() 
+{
+    echo "Installing dependencies for pyenv..."
+   
+
+    echo "Cloning pyenv repository..."
+    git clone https://github.com/pyenv/pyenv.git ~/.pyenv
+
+    echo "Setting up pyenv environment variables..."
+    # Detect the shell and set up pyenv in the correct profile
+    if [[ $SHELL == */zsh ]]; then
+        PROFILE_FILE="$HOME/.zshrc"
+    else
+        PROFILE_FILE="$HOME/.bashrc"
+    fi
+
+    # Add pyenv to shell profile if not already added
+    if ! grep -q "export PYENV_ROOT=\"$HOME/.pyenv\"" "$PROFILE_FILE"; then
+        {
+            echo "export PYENV_ROOT=\"$HOME/.pyenv\""
+            echo "export PATH=\"\$PYENV_ROOT/bin:\$PATH\""
+            echo "eval \"\$(pyenv init --path)\""
+            echo "eval \"\$(pyenv init -)\""
+        } >> "$PROFILE_FILE"
+    fi
+
+    echo "Applying pyenv configuration..."
+    export PYENV_ROOT="$HOME/.pyenv"
+    export PATH="$PYENV_ROOT/bin:$PATH"
+    eval "$(pyenv init --path)"
+    eval "$(pyenv init -)"
+
+    echo "pyenv installation completed successfully."
+    return 0
+}
+
+
+
+
+
 #############################################
 # Installs python core on Debain and RHLE. If
 # installation is successful python_install_success
@@ -999,11 +1197,11 @@ install_python()
 {	
 	python_install_success=0
 
-	if isDebian; then
-	install_python_deb	
+	if is_pyenv_installed; then
+		install_pyenv_python
 	else
-	install_python_rhl
-	fi
+		install_system_python
+	fi	
 
 	# verify
 	check_python
@@ -1016,6 +1214,129 @@ install_python()
 		lecho "Could not install required version of python"
 	fi
 }
+
+
+
+
+
+#############################################
+# Checks to see if a particular version of python
+# can be installed from supported list of interpreters, 
+# and then installs it.
+#
+# GLOBALS:
+
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+install_pyenv_python()
+{
+	# Check for supported Python versions in the yum repository
+    for version in "${PROGRAM_SUPPORTED_INTERPRETERS[@]}"; do
+        lecho "Checking for python$version in pyenv..."
+        if can_install_pyenv_python "$version"; then
+			lecho "Installing python$version in pyenv..."
+			install_pyenv_python_version "$version"
+			return
+		fi
+    done
+
+	lecho "Could not install any of the supported version of python in pyenv..."
+}
+
+
+
+
+#############################################
+# Installs specified version of python through 
+# pyenv.
+# GLOBALS:
+
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+install_pyenv_python_version() {
+    local python_version="$1"  # Get the Python version from function argument
+
+    if [[ -z "$python_version" ]]; then
+        echo "Error: No Python version specified. Usage: install_pyenv_python <version>"
+        return 1
+    fi
+
+    # Check if the requested Python version is already installed
+    if pyenv versions --bare | grep -q "^$python_version$"; then
+        echo "Python $python_version is already installed via pyenv."
+    else
+        echo "Installing Python $python_version using pyenv..."
+        pyenv install "$python_version"
+    fi
+
+	# Setting python version to use henceforth
+	PYTHON_VERSION="$python_version"
+    echo "Python $PYTHON_VERSION installation completed successfully via pyenv."
+    return 0
+}
+
+
+
+
+#############################################
+# Install system python
+# GLOBALS:
+
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+install_system_python()
+{
+	if isDebian; then
+	install_python_deb	
+	else
+	install_python_rhl
+	fi
+}
+
+
+
+
+#############################################
+# Checks if a particular major version of python
+# can be installed by pyenv
+# Where target_version is passed in as parameter
+# GLOBALS:
+
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+can_install_pyenv_python() {
+    local target_version="$1"  # Accepts major.minor (e.g., "3.8")
+
+    echo "Checking for the Python $target_version.x availablity in pyenv..."
+
+    # Get the latest available patch version from pyenv
+    local latest_patch_version
+    latest_patch_version=$(pyenv install --list 2>/dev/null | 
+        grep -E "^\s*${target_version}\.[0-9]+$" | 
+        tr -d ' ' | sort -V | tail -n1)
+
+    if [[ -z "$latest_patch_version" ]]; then
+        echo "No available Python version for $target_version.x in pyenv."
+        return 1
+    fi
+
+    echo "Latest Python version found: $latest_patch_version"
+    return 0
+}
+
+
 
 
 # Private
@@ -1362,6 +1683,25 @@ install_python_rhl() {
 
 # Public
 
+#############################################
+# Installs procps on the linux system
+# GLOBALS:
+#
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+install_procps()
+{
+	if isDebian; then
+	install_procps_deb	
+	else
+	echo "procps Not installable"
+	fi		
+}
+
+
 
 #############################################
 # Installs sudo on the linux system
@@ -1521,6 +1861,32 @@ install_jq_rhl()
 	install_jq="$(which jq)";
 	lecho "jq installed at $install_jq"
 }
+
+
+
+
+#############################################
+# Installs procps on Debian
+# GLOBALS:
+#
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+install_procps_deb()
+{
+	local install_procps
+    
+    if apt-get install -y procps; then
+        install_procps="$(which procps)"
+        lecho "procps installed at $install_procps"
+    else
+        lecho "Failed to install procps."
+        return 1  # Indicate failure
+    fi
+}
+
 
 
 
@@ -2102,7 +2468,31 @@ program_exists()
 }
 
 
-# Creates virtual environment for cloudisense
+
+
+#############################################
+# Create virtual environemnt if not exists
+# 
+# GLOBALS:
+#		virtual_environment_exists, VENV_FOLDER
+# ARGUMENTS:
+#
+# RETURN:
+#		
+#############################################
+check_create_virtual_environment()
+{
+	if is_pyenv_installed; then
+		check_create_pyenv_virtual_environment
+	else
+		check_create_system_virtual_environment
+	fi
+}
+
+
+
+
+
 #############################################
 # Check and create virtual environment for cloudisense,
 # using the python version determined.If environment
@@ -2116,7 +2506,7 @@ program_exists()
 # RETURN:
 #		
 #############################################
-check_create_virtual_environment()
+check_create_system_virtual_environment()
 {
 	virtual_environment_exists=0
 
@@ -2134,6 +2524,7 @@ check_create_virtual_environment()
 
 	$python -m pip install --upgrade pip
 	$pipver install --upgrade setuptools wheel pip
+	
 	
 
 	if [ ! -d "$VENV_FOLDER" ]; then
@@ -2155,7 +2546,7 @@ check_create_virtual_environment()
 		if [ ! -f "$VENV_FOLDER/bin/activate" ] || [ ! -f "$VENV_FOLDER/bin/pip" ] || [ ! -f "$VENV_FOLDER/bin/python3" ]; then
 			echo "Virtual environment seems broken. Trying to re-create"
 			rm -rf "$VENV_FOLDER" && sleep 1
-			check_create_virtual_environment # Create virtual environment again
+			check_create_system_virtual_environment # Create virtual environment again
 		else
 			lecho "Activating virtual environment"
 			# shellcheck disable=SC1091
@@ -2170,7 +2561,7 @@ check_create_virtual_environment()
 				echo "Virtual environment has same version of python."
 			else
 				rm -rf "$VENV_FOLDER" && sleep 1
-				check_create_virtual_environment # Create virtual environment again
+				check_create_system_virtual_environment # Create virtual environment again
 			fi
 
 			echo "Virtual environment is folder is ok to use." && sleep 1
@@ -2179,6 +2570,76 @@ check_create_virtual_environment()
 
 	fi
 }
+
+
+
+
+#############################################
+# Check and create virtual environment for cloudisense,
+# using the python version determined with pyenv.If environment
+# already exists, determine its usability. Then
+# either reuse the same environment or create new.
+# 
+# GLOBALS:
+#		virtual_environment_exists, VENV_FOLDER
+# ARGUMENTS:
+#
+# RETURN:
+#		
+#############################################
+check_create_pyenv_virtual_environment() 
+{
+    virtual_environment_exists=0  # Reset flag
+
+    # Define custom virtual environment location
+    VENV_FOLDER="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME"
+
+    echo "Checking if virtual environment exists at: $VENV_FOLDER"
+    if [ ! -d "$VENV_FOLDER" ]; then
+        echo "Creating virtual environment at $VENV_FOLDER using pyenv Python..."
+        PYENV_VERSION="$PYTHON_VERSION" python -m venv "$VENV_FOLDER"
+    else
+        echo "Virtual environment folder already exists.. verifying it.." && sleep 1
+    fi
+
+    # Ensure the virtual environment is not broken
+    if [ ! -f "$VENV_FOLDER/bin/python" ] || [ ! -f "$VENV_FOLDER/bin/pip" ]; then
+        echo "Virtual environment seems broken. Recreating..."
+        rm -rf "$VENV_FOLDER" && sleep 1
+        check_create_pyenv_custom_virtual_environment  # Recreate the environment
+    fi
+
+    # Check if the activate script exists before sourcing
+    if [ -f "$VENV_FOLDER/bin/activate" ]; then
+        echo "Activating virtual environment..."
+        # shellcheck disable=SC1091
+        source "$VENV_FOLDER/bin/activate"
+    else
+        echo "Error: Activate script not found in $VENV_FOLDER/bin/. Virtual environment setup may have failed."
+        return 1
+    fi
+	
+    # Check Python version in the virtual environment
+    local venv_python
+    venv_python=$(python --version 2>/dev/null)
+
+    if [[ "$venv_python" != *"Python $PYTHON_VERSION"* ]]; then
+        echo "Python version mismatch in virtual environment! Recreating..."
+        rm -rf "$VENV_FOLDER" && sleep 1
+        check_create_pyenv_custom_virtual_environment  # Recreate the environment
+    fi
+
+    echo "Upgrading pip and essential packages..."
+    python -m pip install --upgrade pip
+    pip install --upgrade setuptools wheel
+
+    echo "Custom pyenv virtual environment is set up and ready to use at $VENV_FOLDER."
+    virtual_environment_exists=1
+}
+
+
+
+
 
 
 #############################################
@@ -2193,7 +2654,29 @@ check_create_virtual_environment()
 #############################################
 activate_virtual_environment()
 {
-	lecho "Activating virtual environment"
+	if is_pyenv_installed; then
+		activate_custom_pyenv_virtual_environment
+	else
+		activate_system_virtual_environment
+	fi
+}
+
+
+
+
+#############################################
+# Activate the system python based virtual environment
+# 
+# GLOBALS:
+#		virtual_environment_valid, VENV_FOLDER
+# ARGUMENTS:
+#
+# RETURN:
+#		
+#############################################
+activate_system_virtual_environment() 
+{
+    lecho "Activating system virtual environment"
 
 	virtual_environment_valid=0
 
@@ -2206,7 +2689,7 @@ activate_virtual_environment()
 		local pipver
 		pipver=$(which pip3)		
 
-		$pipver install --upgrade setuptools wheel
+		$pipver install --upgrade setuptools wheel pip
 
 		local path
 		path=$(pip -V)
@@ -2222,6 +2705,60 @@ activate_virtual_environment()
 		lecho "Oops something is wrong! Virtual environment is invalid"
 	fi	
 }
+
+
+
+
+
+
+#############################################
+# Activate the pyenv based virtual environment
+# 
+# GLOBALS:
+#		virtual_environment_valid, VENV_FOLDER
+# ARGUMENTS:
+#
+# RETURN:
+#		
+#############################################
+activate_custom_pyenv_virtual_environment() 
+{
+    lecho "Activating custom pyenv virtual environment"
+
+    virtual_environment_valid=0  # Reset flag
+
+    # Define custom virtual environment location
+    VENV_FOLDER="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME"
+
+    # Check if the virtual environment exists
+    if [ ! -d "$VENV_FOLDER" ] || [ ! -f "$VENV_FOLDER/bin/activate" ]; then
+        lecho "Error: Custom virtual environment not found or incomplete at $VENV_FOLDER"
+        return 1
+    fi
+
+    # Activate the virtual environment
+    echo "Activating virtual environment at: $VENV_FOLDER"
+    # shellcheck disable=SC1091
+    source "$VENV_FOLDER/bin/activate"
+
+    # Verify if the environment was activated correctly
+    local venv_python
+    venv_python=$(python --version 2>/dev/null)
+
+    if [[ "$venv_python" == *"Python $PYTHON_VERSION"* ]]; then
+        virtual_environment_valid=1
+        lecho "Custom pyenv virtual environment is now active"
+    else
+        lecho "Error: Python version mismatch after activation!"
+        return 1
+    fi
+
+    # Upgrade pip and essential packages
+    echo "Upgrading pip and essential packages..."
+    python -m pip install --upgrade pip
+    pip install --upgrade setuptools wheel
+}
+
 
 
 
@@ -2304,8 +2841,7 @@ install_pip_dependencies()
 		fi
 
 		echo "Installing: $clean_dependency"
-		pip install "$clean_dependency"
-		if [[ $? -eq 0 ]]; then
+		if pip install "$clean_dependency"; then
 			echo "Successfully installed: $clean_dependency"
 		else
 			echo "Failed to install: $clean_dependency"
@@ -2433,7 +2969,8 @@ install_from_url()
 	local TMP_DIR
 
 	ARCHIVE_FILE_NAME=$PROGRAM_ARCHIVE_NAME
-	PROGRAM_DOWNLOAD_URL=$(curl -s "$PROGRAM_MANIFEST_LOCATION" | grep -Pom 1 '"url": "\K[^"]*')
+	#PROGRAM_DOWNLOAD_URL=$(curl -s "$PROGRAM_MANIFEST_LOCATION" | grep -Pom 1 '"url": "\K[^"]*')
+	PROGRAM_DOWNLOAD_URL=$PROGRAM_ARCHIVE_LOCATION
 	TMP_DIR=$(mktemp -d -t ci-XXXXXXXXXX)
 
 	lecho "Downloading program url $PROGRAM_DOWNLOAD_URL"
@@ -2559,60 +3096,118 @@ unpack_runtime_libraries()
 #		
 #############################################
 # shellcheck disable=SC2034
+# shellcheck disable=SC2155
 get_install_info()
 {
-	local UNIQ
-	UNIQ=$(date +%s)
+	local UNIQ=$(date +%s)
 
-	local response
-	response=$(curl --write-out '%{http_code}' --silent --output /dev/null "$PROGRAM_MANIFEST_LOCATION?$UNIQ")	
+    # Fetch central manifest with a timestamp to avoid caching issues
+	local response=$(curl --write-out '%{http_code}' --silent --output /dev/null "$PROGRAM_MANIFEST_LOCATION?$UNIQ")
 
-	if [[ "$response" -eq 200 ]]; then
-
-		local manifestdata
-		manifestdata=$(curl -H 'Cache-Control: no-cache' -sk "$PROGRAM_MANIFEST_LOCATION?$UNIQ")
-
-		if [ -z "$manifestdata" ]; then 
-			echo "Failed to get manifest data" && exit
-		fi
+    if [[ "$response" -ne 200 ]]; then
+        lecho_err "Failed to fetch central manifest. HTTP response code: $response"
+        exit 1
+    fi
 
 
-		if [ "$PLATFORM_ARCH" == "x86_64" ]; then
-			eval "$(jq -M -r '@sh "package_enabled=\(.payload.platform.x86_64.enabled) package_url=\(.payload.platform.x86_64.url) package_hash=\(.payload.platform.x86_64.md5) package_version=\(.payload.version) supported_interpreters=\(.payload.platform.x86_64.dependencies.interpreters)"' <<< "$manifestdata")"	
-		elif [[ "$PLATFORM_ARCH" == "arm64" || "$PLATFORM_ARCH" == "aarch64" ]]; then
-    		eval "$(jq -M -r '@sh "package_enabled=\(.payload.platform.arm64.enabled) package_url=\(.payload.platform.arm64.url) package_hash=\(.payload.platform.arm64.md5) package_version=\(.payload.version) supported_interpreters=\(.payload.platform.arm64.dependencies.interpreters)"' <<< "$manifestdata")"
-		else
-			lecho_err "Unknown/unsupported cpu architecture!!.Contact support for further assistance."
-			exit
-		fi
-
-
-		# if package is disabled notify and exit	
-		if [ "$package_enabled" = false ] ; then
-			lecho_err "Package installation is unavailable or disabled.Contact support for further assistance."
-			exit
-		fi
-
-			
-		PROGRAM_ARCHIVE_LOCATION=$package_url
-		PROGRAM_VERSION=$package_version		
-		PROGRAM_HASH=$package_hash
-		
-		# Change comma (,) to whitespace and add under braces
-		# Use read -a for splitting the input string into an array
-		IFS=',' read -ra PROGRAM_SUPPORTED_INTERPRETERS <<< "$supported_interpreters"
-		# Properly expand the array elements while printing
-		echo "Supported interpreters: ${PROGRAM_SUPPORTED_INTERPRETERS[*]}"
-
-		echo "Version: $PROGRAM_VERSION"
-
-	else
-		lecho_err "Payload information is unavailable or cannot be accessed.Contact support for further assistance."
-		exit
-	fi
+	# Now fetch the full central manifest content    
+    local central_manifest_response=$(curl -H 'Cache-Control: no-cache' -sk "$PROGRAM_MANIFEST_LOCATION?$UNIQ")
 	
-}
 
+    if [[ -z "$central_manifest_response" ]]; then
+        lecho_err "Failed to fetch central manifest data."
+        exit 1
+    fi
+
+
+	# Extract key information from central manifest
+	local manifest_url package_version changes
+	manifest_url=$(echo "$central_manifest_response" | jq -r '.manifest')
+	package_version=$(echo "$central_manifest_response" | jq -r '.version')
+	changes=$(echo "$central_manifest_response" | jq -r '.changes')
+
+	# Fix: Check the correct variables
+	if [[ -z "$manifest_url" || -z "$package_version" ]]; then
+		lecho_err "Central manifest is missing required fields."
+		exit 1
+	fi
+
+	lecho "Central Manifest Read Successfully"
+	lecho "Version: $package_version"
+	lecho "Changes: $changes"
+	lecho "Fetching build manifest from: $manifest_url"
+
+
+
+	# Fetch the actual build manifest with a timestamp
+    local build_manifest_response=$(curl -H 'Cache-Control: no-cache' -sk "$manifest_url?$UNIQ")	
+
+    if [[ -z "$build_manifest_response" ]]; then
+        lecho_err "Failed to fetch build manifest."
+        exit 1
+    fi
+
+
+	# Extract common payload information
+	local client_enabled client_url platform_section package_version changes
+	client_enabled=$(echo "$build_manifest_response" | jq -r '.payload.client.enabled')
+	client_url=$(echo "$build_manifest_response" | jq -r '.payload.client.url')
+
+	# Extract version and changes from manifest
+	package_version=$(echo "$build_manifest_response" | jq -r '.payload.version // "unknown"')
+	changes=$(echo "$build_manifest_response" | jq -r '.changes // "No changes provided"')
+
+	# Determine platform-specific section
+	if [[ "$PLATFORM_ARCH" == "x86_64" ]]; then
+		platform_section=".payload.platforms.x86_64"
+	elif [[ "$PLATFORM_ARCH" == "aarch64" ]]; then
+		platform_section=".payload.platforms.aarch64"
+	else
+		lecho_err "Unknown/unsupported CPU architecture: $PLATFORM_ARCH"
+		exit 1
+	fi
+
+	# Extract platform-specific details
+	local package_enabled package_url package_hash supported_interpreters cleanups
+	package_enabled=$(echo "$build_manifest_response" | jq -r "$platform_section.enabled // false")
+	package_url=$(echo "$build_manifest_response" | jq -r "$platform_section.url // \"\"")
+	package_hash=$(echo "$build_manifest_response" | jq -r "$platform_section.md5 // \"\"")
+	supported_interpreters=$(echo "$build_manifest_response" | jq -r "$platform_section.dependencies.interpreters // \"\"")
+	cleanups=$(echo "$build_manifest_response" | jq -c "$platform_section.cleanups // []")
+
+	# Check if package is available
+	if [[ "$package_enabled" != "true" ]]; then
+		lecho_err "Package installation is unavailable or disabled. Contact support for further assistance."
+		exit 1
+	fi
+
+	# Store extracted values
+	PROGRAM_VERSION=$package_version
+	PROGRAM_CHANGES=$changes
+	PROGRAM_ARCHIVE_LOCATION=$package_url
+	PROGRAM_HASH=$package_hash
+	PROGRAM_CLIENT_URL=$client_url
+	PROGRAM_CLEANUPS=$cleanups
+
+	# Convert interpreter list into an array (handle empty case)
+	if [[ -n "$supported_interpreters" ]]; then
+		IFS=',' read -ra PROGRAM_SUPPORTED_INTERPRETERS <<< "$supported_interpreters"
+	else
+		PROGRAM_SUPPORTED_INTERPRETERS=()
+	fi
+
+	# Logging extracted values
+	lecho "Installation Information:"
+	lecho "  - Version: $PROGRAM_VERSION"
+	lecho "  - Changes: $PROGRAM_CHANGES"
+	lecho "  - Client Enabled: $client_enabled"
+	lecho "  - Client URL: $PROGRAM_CLIENT_URL"
+	lecho "  - Platform Package URL: $PROGRAM_ARCHIVE_LOCATION"
+	lecho "  - Package Hash: $PROGRAM_HASH"
+	lecho "  - Supported Interpreters: ${PROGRAM_SUPPORTED_INTERPRETERS[*]}"
+	lecho "  - Cleanups: $PROGRAM_CLEANUPS"
+
+}
 
 
 
@@ -2944,7 +3539,7 @@ install_module()
 			wget -O "$module" "$url"
 			unzip "$module" -d "$dest"
 
-
+			# if there is a requirements.txt - install dependencies into virtual environment
 			if [ -f "$module_requirements_file" ]; then
 				# Install dependencies
 				if [[ "$silent_mode" -eq 0 ]]; then
@@ -4247,6 +4842,71 @@ update()
 
 
 #############################################
+# Installs cloudisense client
+# 
+# GLOBALS:
+#		DEFAULT_PROGRAM_PATH
+#
+# ARGUMENTS:
+#
+# RETURN:
+#		
+#############################################
+install_client() 
+{
+	client_download_success=0
+
+    local client_url="$PROGRAM_CLIENT_URL"
+    local client_dest="$DEFAULT_PROGRAM_PATH/cdsmaster/client"
+    local tmp_dir=$(mktemp -d -t client-download-XXXXXXXXXX)
+    local client_archive="$tmp_dir/cloudisense.zip"
+
+    # Ensure destination folder exists
+    if [[ ! -d "$client_dest" ]]; then
+        lecho "Creating client directory at $client_dest..."
+        mkdir -p "$client_dest"
+    fi
+
+    # Validate client URL
+    if [[ -z "$client_url" || "$client_url" == "null" ]]; then
+        lecho_err "Client URL is not defined or invalid. Skipping client installation."
+        return 1
+    fi
+
+    lecho "Downloading client from: $client_url"
+
+    # Download client archive
+    if ! curl -o "$client_archive" --fail --silent --show-error "$client_url"; then
+        lecho_err "Failed to download client package. Please check the URL or network connection."
+        return 1
+    fi
+
+    lecho "Client package downloaded successfully."
+
+    # Extract client archive
+    lecho "Extracting client package to $client_dest..."
+    if ! unzip -o "$client_archive" -d "$client_dest"; then
+        lecho_err "Failed to extract client package."
+        return 1
+    fi
+
+    # Set appropriate permissions
+    chown -R "$USER":"$USER" "$client_dest"
+    chmod -R 755 "$client_dest"
+
+    lecho "✅ Cloudisense client installed successfully at $client_dest."
+	client_download_success=1
+
+    # Cleanup
+    rm -rf "$tmp_dir"
+	
+}
+
+
+
+
+
+#############################################
 # Installs cloudisense
 # 
 # GLOBALS:
@@ -4259,8 +4919,8 @@ update()
 #############################################
 auto_install_program()
 {
-
 	latest_download_success=0
+	client_download_success=0
 
 
 	# Download zip or clone from repo based on config
@@ -4275,14 +4935,25 @@ auto_install_program()
 	fi
 
 
-	lecho "install_from_url"
+	lecho "Installing program"
 	install_from_url
 		
 
 	if [ "$latest_download_success" -eq 0 ]; then
 		lecho_err "Failed to get distribution from source. Please contact support!"
-		empty_pause
+		empty_pause && exit
 	fi
+
+
+	if [[ "$CLIENT_INSTALL" -eq 1 ]]; then
+		lecho "Installing client"
+		install_client
+
+		if [ "$client_download_success" -eq 0 ]; then
+			lecho_err "Failed to get client distribution from source. Please contact support!"
+			empty_pause && exit
+		fi
+	fi	
 
 
 	lecho "Program installed successfully!"
@@ -4651,13 +5322,15 @@ register_service() {
         lecho "Service installed and started successfully with systemd!"    
 
     else
-        lecho "Error: No supported init system found. Attempting to install supervisor."
+
+		lecho "Error: No supported init system found. Attempting to install supervisor."
+		
 		if register_supervisor; then
 			lecho "Service installed and registered with supervisor!"
 		else
 			lecho "Service installation failed!"
 			exit 1
-		fi		
+		fi
     fi
 
     # shellcheck disable=SC2034
@@ -4812,6 +5485,29 @@ unregister_service() {
     else
         lecho "Service script not found at $SERVICE_SCRIPT_PATH. Unregistration skipped."
     fi
+}
+
+
+
+
+#############################################
+# Checks to see if script is running in docker
+# 
+# GLOBALS:
+#
+# ARGUMENTS:
+#
+# RETURN:
+#		true is service is installed, false otherwise
+#	
+#############################################
+is_running_in_docker()
+{
+	if [ -f /.dockerenv ] || grep -qE "/docker|/lxc" /proc/1/cgroup 2>/dev/null; then
+		return 0
+	else
+		return 1
+	fi
 }
 
 
@@ -5224,14 +5920,25 @@ post_download_install()
 				fi
 				
 				# Install
-				register_as_service 1				
-
-				if $PROGRAM_SERVICE_AUTOSTART; then
-					start_service
+				if is_running_in_docker; then
+					local interpreterpath="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME/bin/python$PYTHON_VERSION"
+					lecho "Inside docker! Run program using '$interpreterpath $DEFAULT_PROGRAM_PATH/$PYTHON_MAIN_FILE'"
 				else
-					prompt_start_service
+					register_as_service 1				
 				fi
+
+
+				if ! is_running_in_docker; then
+					if $PROGRAM_SERVICE_AUTOSTART; then
+						start_service
+					else
+						prompt_start_service
+					fi			
+				fi
+				
 			fi
+
+			post_update_deb
 
 			# register cron for update
 			# deregister_updater && register_updater
@@ -5662,6 +6369,7 @@ prerequisites()
 	prerequisites_update
 
 	prerequisites_sudo	
+	prerequisites_procps
 	prerequisites_jq
 	#prerequisites_git	
 	prerequisites_unzip
@@ -5750,12 +6458,50 @@ prerequisites_python()
 	
 	if [ "$has_min_python_version" -eq 0 ]; then
 		echo "Python not found. Installing required python interpreter..."
-		sleep 2
-
 		install_python
 	else
 		ensure_python_additionals "$PYTHON_VERSION"
 	fi 
+}
+
+
+
+#############################################
+# Checks for and installs pyenv if not found
+# 
+# GLOBALS:
+#		has_min_python_version
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+prerequisites_pyenv()
+{
+	if ! is_pyenv_installed; then
+
+		lecho "Pyenv not found! Installing..."
+
+		# Install dependencies required for pyenv (Debian/Ubuntu)
+		if [[ -f /etc/debian_version ]]; then
+			seudo apt update
+			seudo apt install -y make build-essential libssl-dev zlib1g-dev \
+								libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
+								libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
+								libffi-dev liblzma-dev
+		elif [[ -f /etc/redhat-release ]]; then
+			# Install dependencies for RHEL/CentOS
+			seudo yum install -y gcc gcc-c++ make patch zlib-devel bzip2 bzip2-devel \
+								readline-devel sqlite sqlite-devel openssl-devel \
+								libffi-devel xz-devel
+		elif [[ -f /etc/arch-release ]]; then
+			# Install dependencies for Arch Linux
+			seudo pacman -Sy --needed base-devel openssl zlib \
+								xz tk libffi
+		fi
+	else
+		lecho "Pyenv is already installed on this system"
+	fi
 }
 
 
@@ -5794,9 +6540,29 @@ prerequisites_update()
 #############################################
 prerequisites_update_deb()
 {	
+	sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list	
 	seudo apt-get update -qq
 	seudo apt-get install -y software-properties-common 
 }
+
+
+
+
+#############################################
+# cleans up apt install remains
+# 
+# GLOBALS:
+#
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+post_update_deb()
+{	
+	seudo apt-get clean && rm -rf /var/lib/apt/lists/*
+}
+
 
 
 
@@ -5814,6 +6580,30 @@ prerequisites_update_rhl()
 {
 	seudo yum -y update
 	seudo yum install -y yum-utils
+}
+
+
+
+#############################################
+# Checks for and installs procps if not found
+# 
+# GLOBALS:
+#		
+# ARGUMENTS:
+#
+# RETURN:
+#	
+#############################################
+prerequisites_procps()
+{
+    # Check if sudo is installed by running check_sudo
+    if check_procps; then
+		echo -e "procps \u2714"
+    else
+        echo "Installing procps..."
+        sleep 2
+        install_procps
+    fi
 }
 
 
@@ -6267,6 +7057,16 @@ validate_args()
 	fi
 
 
+	# Validate client installation request
+	if [[ "$args_install_client_request" -eq 1 ]]; then
+		if [[ "$args_install_request" -ne 1 ]]; then
+			echo "Error: The -c | --client option must be used with -i | --install."
+			exit 1
+		fi
+		CLIENT_INSTALL=1
+	fi
+
+
 
 	# if module installation requested
 	if [[ "$args_module_request" -eq 1 ]]; then
@@ -6303,59 +7103,113 @@ validate_args()
 
 
 #############################################
-# Prints usage instructions for the  script
+# Prints usage instructions for the script
 # 
 # GLOBALS:
 #		
 # ARGUMENTS:
 #
 # RETURN:
-#	
+#		Prints help message and exits
 #############################################
-usage()
-{	
-	echo "usage: bash ./install.sh -<flag> <value>"
-	echo "-u    | --update      	(-1|0|1)					Update mode"
-	echo "-r    | --remove										Uninstall program"
-	echo "-d    | --dependencies  (requirements file name)    	Requirements file to use"	
-	echo "-h    | --help                                		Brings up this menu"
+usage() {	
+    echo "Usage: bash ./install.sh [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  -u, --update [MODE]       Update mode:"
+    echo "                               -1 : Uninstall program"
+    echo "                                0 : Install program"
+    echo "                                1 : Update existing installation"
+    echo ""
+    echo "  -r, --remove              Uninstall Cloudisense completely"
+    echo "  -m, --module [NAME]       Install a specific module"
+    echo "  -p, --profile [NAME]      Install a specific profile"
+    echo "  -d, --dependencies [FILE] Specify a custom requirements file"
+    echo "  -i, --install             Perform a fresh installation"
+    echo "  -c, --client              Install the client (must be used with -i)"
+    echo "  -h, --help                Show this help message and exit"
+    echo ""
+    echo "Examples:"
+    echo "  bash ./install.sh -u 1       # Update existing installation"
+    echo "  bash ./install.sh -m module1 # Install module1"
+    echo "  bash ./install.sh -p profile # Install profile"
+    echo "  bash ./install.sh -i -c      # Install program and client"
+    echo "  bash ./install.sh -r         # Remove the program"
+    echo ""
+    exit 0
 }
 
 
-# grab any shell arguments
+
+
 # shellcheck disable=SC2034
-while getopts 'm:u:p:irde:h' o; do
-    case "${o}" in
-		m) 
-			args_module_request=1
-			args_module_name="${OPTARG}"		
-		;;
-		p) 
-			args_profile_request=1
-			args_profile_name="${OPTARG}"		
-		;;
-		u) 
-			args_update_request=1
-			args_update_mode=${OPTARG}
-		;;
-		i) 
-			args_install_request=1
-			args_update_mode=0
-		;;
-		r) 
-			args_update_mode=-1
-		;;
-		d)
-			args_requirements_file="${OPTARG}"
-		;;
-		#e)
-		#	args_enable_disable="${OPTARG}"
-		#;;
-		h|*)
-			usage
-			exit 1
-		;;
-  esac
+# Grab any shell arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -m|--module)
+            if [[ -n "$2" && "$2" != -* ]]; then
+                args_module_request=1
+                args_module_name="$2"
+                shift 2
+            else
+                echo "Error: Missing module name for -m|--module option."
+                usage
+            fi
+        ;;
+        -p|--profile)
+            if [[ -n "$2" && "$2" != -* ]]; then
+                args_profile_request=1
+                args_profile_name="$2"
+                shift 2
+            else
+                echo "Error: Missing profile name for -p|--profile option."
+                usage
+            fi
+        ;;
+        -u|--update)
+            if [[ -n "$2" && "$2" =~ ^-?[0-1]$ ]]; then
+                args_update_request=1
+                args_update_mode="$2"
+                shift 2
+            else
+                echo "Error: Invalid update mode for -u|--update. Allowed values: -1, 0, 1."
+                usage
+            fi
+        ;;
+        -i|--install)
+            args_install_request=1
+            args_update_mode=0
+            shift
+        ;;
+        -c|--client)
+            if [[ $args_install_request -eq 0 ]]; then
+                echo "Error: The -c | --client option must be used with -i | --install."
+                usage
+            fi
+            args_install_client_request=1
+            shift
+        ;;
+        -r|--remove)
+            args_update_mode=-1
+            shift
+        ;;
+        -d|--dependencies)
+            if [[ -n "$2" && "$2" != -* ]]; then
+                args_requirements_file="$2"
+                shift 2
+            else
+                echo "Error: Missing file name for -d|--dependencies option."
+                usage
+            fi
+        ;;
+        -h|--help)
+            usage
+        ;;
+        *)
+            echo "Error: Unknown option $1"
+            usage
+        ;;
+    esac
 done
 shift $(( OPTIND - 1 ))
 
