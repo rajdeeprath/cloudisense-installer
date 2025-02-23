@@ -1086,18 +1086,25 @@ ensure_python_additionals()
 # RETURN:
 #	
 #############################################
-install_python_additionals_deb()
-{
+install_python_additionals_deb() {
     local ver=$1
 
-	lecho "Installing additional dependencies"
+    lecho "Installing additional dependencies"
 
-	if apt-cache show python"$ver"-venv > /dev/null 2>&1; then
-		seudo apt-get install -y python"$ver"-venv
-	fi
-	
-    seudo apt-get install -y python3-pip python"$ver"-dev python3-venv python3-testresources
+    # Check and install python version-specific venv if available
+    if apt-cache madison python"$ver"-venv | grep -q "python$ver-venv"; then
+        seudo apt-get install -y python"$ver"-venv
+    fi
+
+    # Check and install python version-specific dev package if available
+    if apt-cache madison python"$ver"-dev | grep -q "python$ver-dev"; then
+        seudo apt-get install -y python"$ver"-dev
+    fi
+
+    # Install common Python packages
+    seudo apt-get install -y python3-pip python3-venv python3-testresources
 }
+
 
 
 
