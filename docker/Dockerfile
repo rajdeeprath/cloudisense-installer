@@ -27,5 +27,18 @@ EXPOSE 8000
 # Set environment variable
 ENV ENV_BIND_HOST=0.0.0.0
 
-# Set the command to run Cloudisense
-CMD ["/root/virtualenvs/cloudisense/bin/python3.8", "/root/cloudisense/run.py"]
+# Create the log directory
+RUN mkdir -p /root/log
+
+# Create a fake log generator script
+RUN echo '#!/bin/bash' > /usr/local/bin/fake_log_generator.sh && \
+    echo 'while true; do' >> /usr/local/bin/fake_log_generator.sh && \
+    echo '  log_time=$(date)' >> /usr/local/bin/fake_log_generator.sh && \
+    echo '  log_msg="INFO - Fake log message $(shuf -i 1-100 -n 1)"' >> /usr/local/bin/fake_log_generator.sh && \
+    echo '  echo "$log_time - $log_msg" | tee -a /root/log/fakelog.log' >> /usr/local/bin/fake_log_generator.sh && \
+    echo '  sleep $(shuf -i 1-10 -n 1)' >> /usr/local/bin/fake_log_generator.sh && \
+    echo 'done' >> /usr/local/bin/fake_log_generator.sh && \
+    chmod +x /usr/local/bin/fake_log_generator.sh
+
+# Run the log generator in the background & Start Cloudisense
+CMD ["/bin/bash", "-c", "/usr/local/bin/fake_log_generator.sh & exec /root/virtualenvs/cloudisense/bin/python3.8 /root/cloudisense/run.py"]
