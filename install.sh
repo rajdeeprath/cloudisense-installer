@@ -44,7 +44,6 @@ PROGRAM_SERVICE_LOCATION=/lib/systemd/system
 DEFAULT_PROGRAM_PATH="/usr/local/$PROGRAM_NAME"
 PROGRAM_CONFIGURATION_MERGER=/python/smartmerge.py
 PROGRAM_SERVICE_AUTOSTART=false
-PROGRAM_INSTALL_AS_SERVICE=false
 PROGRAM_INSTALL_REPORT_NAME=report.json
 PYTHON_MAIN_FILE=run.py
 PROGRAM_DEFAULT_DOWNLOAD_FOLDER_NAME="tmp"
@@ -5902,7 +5901,7 @@ post_download_install()
 
 			write_installation_meta
 
-			if $PROGRAM_INSTALL_AS_SERVICE; then
+			if [[ -n "$PROGRAM_INSTALL_AS_SERVICE" && "$PROGRAM_INSTALL_AS_SERVICE" == "true" ]]; then
 
 				# stop if running
 				if is_service_installed; then
