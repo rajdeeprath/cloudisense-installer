@@ -1,12 +1,14 @@
-# Use Python 3.8 as the base image
-FROM python:3.8
+# Use a minimal base image
+FROM python:3.8-slim
+
+# Set environment variable
+ENV PROGRAM_INSTALL_AS_SERVICE=false
 
 # Set working directory
 WORKDIR /app
 
-# Install dependencies and utilities
-RUN apt-get update && apt-get install -y \
-    git \
+# Install necessary packages with minimal dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone the installer repository
@@ -15,20 +17,19 @@ RUN git clone https://github.com/rajdeeprath/cloudisense-installer /cloudisense-
 # Grant execution permissions for installer scripts
 RUN chmod +x /cloudisense-installer/*.sh
 
-# Run the core installation
-RUN /cloudisense-installer/install.sh -i -c
-
-# Install specified modules
-RUN /cloudisense-installer/install.sh -i -m "shell,logmonitor,reaction,system,filesystem,rpcgateway,security"
+# Run the core installation with the environment variable set
+RUN PROGRAM_INSTALL_AS_SERVICE=true /cloudisense-installer/install.sh -i -c && \
+    /cloudisense-installer/install.sh -i -m "shell,logmonitor,reaction,system,filesystem,rpcgateway,security" && \
+    rm -rf /cloudisense-installer
 
 # Expose port 8000
 EXPOSE 8000
 
-# Set environment variable
+# Set additional environment variable
 ENV ENV_BIND_HOST=0.0.0.0
 
 # Create the log directory
-RUN mkdir -p /root/log
+RUN mkdir -p /root/log && ln -sf /dev/null /root/log/fakelog.log
 
 # Create a fake log generator script
 RUN echo '#!/bin/bash' > /usr/local/bin/fake_log_generator.sh && \
