@@ -1,9 +1,6 @@
 # Use a minimal base image
 FROM python:3.8-slim
 
-# Set environment variable
-ENV PROGRAM_INSTALL_AS_SERVICE=false
-
 # Set working directory
 WORKDIR /app
 
@@ -11,16 +8,16 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone the installer repository
-RUN git clone https://github.com/rajdeeprath/cloudisense-installer /cloudisense-installer
-
-# Grant execution permissions for installer scripts
-RUN chmod +x /cloudisense-installer/*.sh
+# Clone the installer repository and grant execution permissions
+RUN git clone https://github.com/rajdeeprath/cloudisense-installer /cloudisense-installer && \
+    chmod +x /cloudisense-installer/*.sh
 
 # Run the core installation with the environment variable set
-RUN PROGRAM_INSTALL_AS_SERVICE=true /cloudisense-installer/install.sh -i -c && \
-    /cloudisense-installer/install.sh -i -m "shell,logmonitor,reaction,system,filesystem,rpcgateway,security" && \
-    rm -rf /cloudisense-installer
+RUN PROGRAM_INSTALL_AS_SERVICE=false /cloudisense-installer/install.sh -i -c && \
+    /cloudisense-installer/install.sh -i -m "shell,logmonitor,reaction,system,filesystem,rpcgateway,security"
+
+# Remove the installer after installation (in a separate layer)
+RUN rm -rf /cloudisense-installer
 
 # Expose port 8000
 EXPOSE 8000
