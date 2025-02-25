@@ -24,6 +24,8 @@ EXPOSE 8000
 
 # Set additional environment variable
 ENV ENV_BIND_HOST=0.0.0.0
+ENV ENV_LOG_TARGETS='[{"enabled": true, "name": "fakelog.log", "log_file_path": "/root/log/fakelog.log"}]'
+
 
 # Create the log directory
 RUN mkdir -p /root/log && ln -sf /dev/null /root/log/fakelog.log
