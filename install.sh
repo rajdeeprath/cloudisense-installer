@@ -6305,18 +6305,31 @@ main()
 				if is_first_time_install; then
 					prerequisites_python
 				fi
+				
 
-				#if [[ $args_enable_disable_request -eq 1 ]]; then
+				# Check if it's a comma-separated list
+				if [[ "$args_module_name" == *","* ]]; then
+					# Remove spaces before and after commas using Bash parameter substitution
+					args_module_name="${args_module_name// ,/,}"  # Remove spaces before commas
+					args_module_name="${args_module_name//, /,}"  # Remove spaces after commas
 
-				#	if [ "$args_enable_disable" == "true" ]; then
-				#		enable_module $args_module_name
-				#	else
-				#		disable_module $args_module_name
-				#	fi					
-				#else
-				echo "Installing module $args_module_name" && sleep 2
-				install_module "$args_module_name"
-				#fi			
+					# Split into an array
+					IFS=',' read -ra modules <<< "$args_module_name"
+
+					echo "Detected multiple modules: ${modules[*]}"
+
+					# Loop through and install each module, trimming leading/trailing spaces
+					for module in "${modules[@]}"; do
+						module="$(echo "$module" | xargs)"  # Trim leading/trailing spaces
+						echo "Installing module $module" && sleep 2
+						install_module "$module"
+					done
+				else
+					# Single module installation (trim leading/trailing spaces)
+					args_module_name="$(echo "$args_module_name" | xargs)"
+					echo "Installing module $args_module_name" && sleep 2
+					install_module "$args_module_name"
+				fi
 
 			else				
 				echo "Installing core" && sleep 2 
