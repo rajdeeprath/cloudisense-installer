@@ -3200,12 +3200,7 @@ get_install_info()
 	lecho "Installation Information:"
 	lecho "  - Version: $PROGRAM_VERSION"
 	lecho "  - Changes: $PROGRAM_CHANGES"
-	lecho "  - Client Enabled: $client_enabled"
-	lecho "  - Client URL: $PROGRAM_CLIENT_URL"
-	lecho "  - Platform Package URL: $PROGRAM_ARCHIVE_LOCATION"
-	lecho "  - Package Hash: $PROGRAM_HASH"
 	lecho "  - Supported Interpreters: ${PROGRAM_SUPPORTED_INTERPRETERS[*]}"
-	lecho "  - Cleanups: $PROGRAM_CLEANUPS"
 
 }
 
