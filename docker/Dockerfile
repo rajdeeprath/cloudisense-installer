@@ -37,17 +37,18 @@ ENV ENV_DOWNLOADABLE_PATHS="[\"/root/filesystem\",\"/root/log\"]"
 # Create the log directory before log generation starts
 RUN mkdir -p /root/log && touch /root/log/fakelog.log && ln -sf /dev/null /root/log/fakelog.log
 
-# Create and set up a fake log generator script
+# Create and set up a fake log generator script (No console output)
 RUN echo '#!/bin/bash' > /usr/local/bin/fake_log_generator.sh && \
     echo 'mkdir -p /root/log' >> /usr/local/bin/fake_log_generator.sh && \
     echo 'touch /root/log/fakelog.log' >> /usr/local/bin/fake_log_generator.sh && \
     echo 'while true; do' >> /usr/local/bin/fake_log_generator.sh && \
     echo '  log_time=$(date)' >> /usr/local/bin/fake_log_generator.sh && \
     echo '  log_msg="INFO - Fake log message $(shuf -i 1-100 -n 1)"' >> /usr/local/bin/fake_log_generator.sh && \
-    echo '  echo "$log_time - $log_msg" | tee -a /root/log/fakelog.log' >> /usr/local/bin/fake_log_generator.sh && \
+    echo '  echo "$log_time - $log_msg" >> /root/log/fakelog.log' >> /usr/local/bin/fake_log_generator.sh && \
     echo '  sleep $(shuf -i 1-5 -n 1)' >> /usr/local/bin/fake_log_generator.sh && \
     echo 'done' >> /usr/local/bin/fake_log_generator.sh && \
     chmod +x /usr/local/bin/fake_log_generator.sh
+
 
 # Run the log generator in the background & Start Cloudisense
 CMD ["/bin/bash", "-c", "/usr/local/bin/fake_log_generator.sh & exec /root/virtualenvs/cloudisense/bin/python3.8 /root/cloudisense/run.py"]
