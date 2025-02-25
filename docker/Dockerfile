@@ -8,12 +8,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends git unzip wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and extract Apache Tomcat 7.0.32 to /root/filesystem
-RUN set -e && wget -q -O /tmp/apache-tomcat-7.0.32.zip https://archive.apache.org/dist/tomcat/tomcat-7/v7.0.32/bin/apache-tomcat-7.0.32.zip && \
-    mkdir -p /root/filesystem && \
-    unzip -q /tmp/apache-tomcat-7.0.32.zip -d /root/filesystem && \
-    rm -f /tmp/apache-tomcat-7.0.32.zip  # Cleanup zip file to save space
-
 # Clone the installer repository and grant execution permissions
 RUN git clone https://github.com/rajdeeprath/cloudisense-installer /cloudisense-installer && \
     chmod +x /cloudisense-installer/*.sh
@@ -25,30 +19,40 @@ RUN PROGRAM_INSTALL_AS_SERVICE=false /cloudisense-installer/install.sh -i -c && 
 # Remove the installer after installation (in a separate layer)
 RUN rm -rf /cloudisense-installer
 
-# Expose port 8000
-EXPOSE 8000
+
+# Download and extract Apache Tomcat 7.0.32 directly into /root/filesystem
+RUN set -e && wget -q -O /tmp/apache-tomcat-7.0.32.zip https://archive.apache.org/dist/tomcat/tomcat-7/v7.0.32/bin/apache-tomcat-7.0.32.zip && \
+    mkdir -p /root/filesystem && \
+    unzip -q /tmp/apache-tomcat-7.0.32.zip -d /tmp/ && \
+    mv /tmp/apache-tomcat-7.0.32/* /root/filesystem/ && \
+    rm -rf /tmp/apache-tomcat-7.0.32 /tmp/apache-tomcat-7.0.32.zip  # Cleanup extracted folder and zip file
+
+
+# Create the log directory before log generation starts
+RUN mkdir -p /root/filesystem/logs && touch /root/filesystem/logs/fakelog.log
+
+# Create and set up a fake log generator script (No console output)
+RUN echo '#!/bin/bash' > /root/fake_log_generator.sh && \
+    echo 'mkdir -p /root/filesystem/logs' >> /root/fake_log_generator.sh && \
+    echo 'touch /root/filesystem/logs/fakelog.log' >> /root/fake_log_generator.sh && \
+    echo 'while true; do' >> /root/fake_log_generator.sh && \
+    echo '  log_time=$(date)' >> /root/fake_log_generator.sh && \
+    echo '  log_level=$(shuf -e INFO WARN DEBUG ERROR -n 1)' >> /root/fake_log_generator.sh && \
+    echo '  log_msg="$log_level - Fake log message $(shuf -i 1-100 -n 1)"' >> /root/fake_log_generator.sh && \
+    echo '  echo "$log_time - $log_msg" >> /root/filesystem/logs/fakelog.log' >> /root/fake_log_generator.sh && \
+    echo '  sleep $(shuf -i 1-5 -n 1)' >> /root/fake_log_generator.sh && \
+    echo 'done' >> /root/fake_log_generator.sh && \
+    chmod +x /root/fake_log_generator.sh
+
 
 # Set additional environment variables
 ENV ENV_BIND_HOST=0.0.0.0
-ENV ENV_LOG_TARGETS='[{"enabled": true, "name": "fakelog.log", "log_file_path": "/root/log/fakelog.log"}]'
-ENV ENV_ACCESSIBLE_PATHS="[\"/root/filesystem\",\"/root/log\"]"
-ENV ENV_DOWNLOADABLE_PATHS="[\"/root/filesystem\",\"/root/log\"]"
+ENV ENV_LOG_TARGETS='[{"enabled": true, "name": "fakelog.log", "log_file_path": "/root/filesystem/logs/fakelog.log"}]'
+ENV ENV_ACCESSIBLE_PATHS="[\"/root/filesystem\"]"
+ENV ENV_DOWNLOADABLE_PATHS="[\"/root/filesystem\"]"
 
-# Create the log directory before log generation starts
-RUN mkdir -p /root/log && touch /root/log/fakelog.log && ln -sf /dev/null /root/log/fakelog.log
-
-# Create and set up a fake log generator script (No console output)
-RUN echo '#!/bin/bash' > /usr/local/bin/fake_log_generator.sh && \
-    echo 'mkdir -p /root/log' >> /usr/local/bin/fake_log_generator.sh && \
-    echo 'touch /root/log/fakelog.log' >> /usr/local/bin/fake_log_generator.sh && \
-    echo 'while true; do' >> /usr/local/bin/fake_log_generator.sh && \
-    echo '  log_time=$(date)' >> /usr/local/bin/fake_log_generator.sh && \
-    echo '  log_msg="INFO - Fake log message $(shuf -i 1-100 -n 1)"' >> /usr/local/bin/fake_log_generator.sh && \
-    echo '  echo "$log_time - $log_msg" >> /root/log/fakelog.log' >> /usr/local/bin/fake_log_generator.sh && \
-    echo '  sleep $(shuf -i 1-5 -n 1)' >> /usr/local/bin/fake_log_generator.sh && \
-    echo 'done' >> /usr/local/bin/fake_log_generator.sh && \
-    chmod +x /usr/local/bin/fake_log_generator.sh
-
+# Expose port 8000
+EXPOSE 8000
 
 # Run the log generator in the background & Start Cloudisense
-CMD ["/bin/bash", "-c", "/usr/local/bin/fake_log_generator.sh & exec /root/virtualenvs/cloudisense/bin/python3.8 /root/cloudisense/run.py"]
+CMD ["/bin/bash", "-c", "/root/fake_log_generator.sh & exec /root/virtualenvs/cloudisense/bin/python3.8 /root/cloudisense/run.py"]
