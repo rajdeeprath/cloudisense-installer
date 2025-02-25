@@ -31,8 +31,8 @@ EXPOSE 8000
 # Set additional environment variables
 ENV ENV_BIND_HOST=0.0.0.0
 ENV ENV_LOG_TARGETS='[{"enabled": true, "name": "fakelog.log", "log_file_path": "/root/log/fakelog.log"}]'
-ENV ENV_ACCESSIBLE_PATHS='["/root/filesystem","/root/log"]'
-ENV ENV_DOWNLOADABLE_PATHS='["/root/filesystem","/root/log"]'
+ENV ENV_ACCESSIBLE_PATHS="[\"/root/filesystem\",\"/root/log\"]"
+ENV ENV_DOWNLOADABLE_PATHS="[\"/root/filesystem\",\"/root/log\"]"
 
 # Create the log directory before log generation starts
 RUN mkdir -p /root/log && touch /root/log/fakelog.log && ln -sf /dev/null /root/log/fakelog.log
