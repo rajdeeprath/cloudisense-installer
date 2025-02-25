@@ -3527,7 +3527,7 @@ install_module()
 		# ALL OK -> Do Ops	
 		if [[ "$error" -eq 0 ]]; then			
 
-			local current_python="${PYTHON_VERSION//./}"
+			local current_python="${INSTALLATION_PYTHON_VERSION//./}"
 			
 			local tmp_dir
 			tmp_dir=$(mktemp -d -t ci-XXXXXXXXXX)
@@ -3557,7 +3557,7 @@ install_module()
 				
 				local filename="${name%.*}"
 
-				if [[ "$name" == *"$current_python.so" ]]; then				
+				if [[ "$name" =~ .*"$current_python"\.so$ ]]; then
 					# Move tmp file to main location
 					if [[ "$silent_mode" -eq 0 ]]; then
 						lecho "Moving runtime file $j to $deploy_path/$module_name.so"
@@ -5816,6 +5816,7 @@ read_installation_meta()
 		PYTHON_REQUIREMENTS_FILENAME=$requirements_filename
 		CURRENT_INSTALLATION_PROFILE="$profile"
 		UIGUIDE_LAYOUT="$layout"
+
 
 	fi
 }
