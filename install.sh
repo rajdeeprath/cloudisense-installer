@@ -3572,6 +3572,13 @@ install_module()
 					fi
 					mv "$j" "$deploy_path"/conf/"$module_name".json
 					chown "$USER": "$deploy_path/conf/$module_name.json"
+
+					# enable required modules
+					local conf_target_file="$deploy_path/conf/$module_name.json"
+					local tmpfile="${conf_target_file/.json/.tmp}"
+					jq '.enabled = "true"' "$conf_target_file" > "$tmpfile"
+					mv "$tmpfile" "$conf_target_file"
+
 				elif [[ $name == *".py" ]]; then					
 					# Move tmp file to main location
 					if [[ "$silent_mode" -eq 0 ]]; then
