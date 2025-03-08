@@ -3959,222 +3959,231 @@ install_profile()
 				fi
 
 
-
-				# Install required modules
-				for module in "${add_modules[@]}"; do				
-					module=${module//$'\n'/} # Remove all newlines.
-					
-					install_module "$module" "$DEFAULT_PROGRAM_PATH" true 0 1
-					
-					if [ "$module_install_success" -ne 1 ]; then  # Ensures it only fails if module_install_success is not set to success
-						err_message="Failed to install module $module."
-						error=1
-						break
-					fi
-
-					local module_conf_source_file="$module_conf_source_path/$module.json"
-					local module_conf_target_file="$module_conf_install_path/$module.json"			
-
-					# Copy over any specific configuration
-					if [ -f "$module_conf_source_file" ]; then
-						lecho "Copying over custom module configuration $module_conf_source_file to $module_conf_target_file"
-						mv "$module_conf_source_file" "$module_conf_target_file"							
-						chown "$USER": "$module_conf_target_file"			
-					fi
-
-					# Enable required modules (only if config exists)
-					if [ -f "$module_conf_target_file" ]; then
-						local tmpfile="${module_conf_target_file/.json/.tmp}"
-						jq '.enabled = "true"' "$module_conf_target_file" > "$tmpfile" && mv "$tmpfile" "$module_conf_target_file"
-					fi
-				done
-
-				# If no module installation errors -> continue profile setup				
-				if [[ "$module_install_success" -eq 1 ]]; then
-					# Remove unwanted modules
-					for module in "${remove_modules[@]}"; do
+				if [[ "$error" -eq 0 ]]; then
+					# Install required modules
+					for module in "${add_modules[@]}"; do				
 						module=${module//$'\n'/} # Remove all newlines.
-
-						local module_so_file="$module_install_path/$module.so"
-						local module_py_file="$module_install_path/$module.py"
-						local module_conf_file="$module_conf_install_path/$module.json"
-
-						# Delete module file
-						if [ -f "$module_so_file" ]; then
-							lecho "Deleting module file $module_so_file"
-							rm "$module_so_file"
-						elif [ -f "$module_py_file" ]; then
-							lecho "Deleting module file $module_py_file"
-							rm "$module_py_file"
+						
+						install_module "$module" "$DEFAULT_PROGRAM_PATH" true 0 1
+						
+						if [ "$module_install_success" -ne 1 ]; then  # Ensures it only fails if module_install_success is not set to success
+							err_message="Failed to install module $module."
+							error=1
+							break
 						fi
 
-						# Delete module config file
-						if [ -f "$module_conf_file" ]; then
-							lecho "Deleting module config file $module_conf_file"
-							rm "$module_conf_file"
+						local module_conf_source_file="$module_conf_source_path/$module.json"
+						local module_conf_target_file="$module_conf_install_path/$module.json"			
+
+						# Copy over any specific configuration
+						if [ -f "$module_conf_source_file" ]; then
+							lecho "Copying over custom module configuration $module_conf_source_file to $module_conf_target_file"
+							mv "$module_conf_source_file" "$module_conf_target_file"							
+							chown "$USER": "$module_conf_target_file"			
+						fi
+
+						# Enable required modules (only if config exists)
+						if [ -f "$module_conf_target_file" ]; then
+							local tmpfile="${module_conf_target_file/.json/.tmp}"
+							jq '.enabled = "true"' "$module_conf_target_file" > "$tmpfile" && mv "$tmpfile" "$module_conf_target_file"
+						fi
+					done
+
+					# If no module installation errors -> continue profile setup				
+					if [[ "$module_install_success" -eq 1 ]]; then
+						# Remove unwanted modules
+						for module in "${remove_modules[@]}"; do
+							module=${module//$'\n'/} # Remove all newlines.
+
+							local module_so_file="$module_install_path/$module.so"
+							local module_py_file="$module_install_path/$module.py"
+							local module_conf_file="$module_conf_install_path/$module.json"
+
+							# Delete module file
+							if [ -f "$module_so_file" ]; then
+								lecho "Deleting module file $module_so_file"
+								rm "$module_so_file"
+							elif [ -f "$module_py_file" ]; then
+								lecho "Deleting module file $module_py_file"
+								rm "$module_py_file"
+							fi
+
+							# Delete module config file
+							if [ -f "$module_conf_file" ]; then
+								lecho "Deleting module config file $module_conf_file"
+								rm "$module_conf_file"
+							fi
+						done
+					fi
+				fi
+
+
+
+				if [[ "$error" -eq 0 ]]; then
+					# Install required rules
+					for rule in "${add_rules[@]}"; do
+						rule=${rule//$'\n'/} # Remove all newlines.
+
+						local installable_rule="$rules_source_path/$rule.json" 
+						local target_rule="$rules_install_path/$rule.json"
+
+						if [ -f "$installable_rule" ]; then
+							if [ -f "$target_rule" ]; then
+								lecho "Target $target_rule rule already exists. Proceeding with this operation will overwrite the existing rule."
+								read -r -p "Do you wish to continue? [y/N] " response
+								case $response in
+									[yY][eE][sS]|[yY]) 
+										lecho "Installing rule.."
+									;;
+									*)
+										lecho_err "Rule installation for $installable_rule cancelled!"
+										continue
+									;;
+								esac
+							fi
+
+							lecho "Moving rule $installable_rule to $target_rule"
+							if mv "$installable_rule" "$target_rule"; then
+								if chown "$USER": "$target_rule"; then
+									lecho "Successfully installed and set permissions for $target_rule"
+								else
+									lecho_err "Failed to change ownership of $target_rule"
+									error=1
+									break
+								fi
+							else
+								lecho_err "Failed to move $installable_rule to $target_rule"
+								error=1
+								break
+							fi
+
+						else
+							lecho "Something is wrong! Installable rule $installable_rule does not exist in the profile package."
+							continue
+						fi
+					done
+
+					# Remove unwanted rules
+					for rule in "${remove_rules[@]}"; do
+						rule=${rule//$'\n'/} # Remove all newlines.
+
+						local removable_rule="$rules_install_path/$rule.json"
+
+						if [ -f "$removable_rule" ]; then
+							if rm "$removable_rule"; then
+								lecho "Successfully removed $removable_rule"
+							else
+								lecho_err "Failed to remove $removable_rule"
+								error=1
+								break
+							fi
+
+						else
+							lecho "Rule $removable_rule does not exist at target location. Nothing to remove here!."
 						fi
 					done
 				fi
 
 
 
-				# Install required rules
-				for rule in "${add_rules[@]}"; do
-					rule=${rule//$'\n'/} # Remove all newlines.
+				if [[ "$error" -eq 0 ]]; then
+					# Install required scripts
+					for script in "${add_scripts[@]}"; do
+						script=${script//$'\n'/} # Remove all newlines.
 
-					local installable_rule="$rules_source_path/$rule.json" 
-					local target_rule="$rules_install_path/$rule.json"
+						local installable_script="$scripts_source_path/$script.sh" 
+						local target_script="$scripts_install_path/$script.sh"
 
-					if [ -f "$installable_rule" ]; then
-						if [ -f "$target_rule" ]; then
-							lecho "Target $target_rule rule already exists. Proceeding with this operation will overwrite the existing rule."
-							read -r -p "Do you wish to continue? [y/N] " response
-							case $response in
-								[yY][eE][sS]|[yY]) 
-									lecho "Installing rule.."
-								;;
-								*)
-									lecho_err "Rule installation for $installable_rule cancelled!"
-									continue
-								;;
-							esac
-						fi
+						if [ -f "$installable_script" ]; then
+							if [ -f "$target_script" ]; then
+								local response=
+								lecho "Target script $target_script already exists. Proceeding with this operation will overwrite the existing script."
+								read -r -p "Do you wish to continue? [y/N] " response
+								case $response in
+									[yY][eE][sS]|[yY]) 
+										lecho "Installing script.."
+									;;
+									*)
+										lecho_err "Script installation for $installable_script cancelled!"
+										continue
+									;;
+								esac								
+							fi
 
-						lecho "Moving rule $installable_rule to $target_rule"
-						if mv "$installable_rule" "$target_rule"; then
-							if chown "$USER": "$target_rule"; then
-								lecho "Successfully installed and set permissions for $target_rule"
+							lecho "Moving script $installable_script to $target_script"
+							if mv "$installable_script" "$target_script"; then
+								chown "$USER": "$target_script" && chmod +x "$target_script"
+								lecho "Successfully installed $target_script"
 							else
-								lecho_err "Failed to change ownership of $target_rule"
+								lecho_err "Failed to install $installable_script"
 								error=1
 								break
 							fi
 						else
-							lecho_err "Failed to move $installable_rule to $target_rule"
-							error=1
-							break
+							lecho "Something is wrong! Installable script $installable_script does not exist in the profile package."
+							continue
 						fi
+					done
 
-					else
-						lecho "Something is wrong! Installable rule $installable_rule does not exist in the profile package."
-						continue
-					fi
-				done
+					# Remove unwanted scripts
+					for script in "${remove_scripts[@]}"; do
+						script=${script//$'\n'/} # Remove all newlines.
 
-				# Remove unwanted rules
-				for rule in "${remove_rules[@]}"; do
-					rule=${rule//$'\n'/} # Remove all newlines.
+						local removable_script="$scripts_install_path/$script.sh"
 
-					local removable_rule="$rules_install_path/$rule.json"
-
-					if [ -f "$removable_rule" ]; then
-						if rm "$removable_rule"; then
-							lecho "Successfully removed $removable_rule"
+						if [ -f "$removable_script" ]; then
+							if rm "$removable_script"; then
+								lecho "Successfully removed $removable_script"
+							else
+								lecho_err "Failed to remove $removable_script"
+								error=1
+								break
+							fi
 						else
-							lecho_err "Failed to remove $removable_rule"
-							error=1
-							break
+							lecho "Script $removable_script does not exist at target location. Nothing to remove here!."
+						fi
+					done
+				fi
+
+
+
+
+				if [[ "$error" -eq 0 ]]; then
+					# Define file paths
+					local source_template="$template_source_path/default.json"
+					local source_layout="$layout_source_path/default.json"
+					local target_template="$template_install_path/default.json"
+					local target_layout="$layout_install_path/default.json"
+
+					# Check if we have a template to install
+					if [ -f "$source_template" ]; then
+						# Backup existing template
+						if [ -f "$target_template" ]; then
+							lecho "Backing up current template"
+							mv "$target_template" "${target_template%.json}.bak" || { lecho_err "Failed to backup existing template."; error=1; }
 						fi
 
-					else
-						lecho "Rule $removable_rule does not exist at target location. Nothing to remove here!."
-					fi
-				done
+						# Copy new template
+						cp "$source_template" "$target_template" || { lecho_err "Failed to copy new template."; error=1; }
 
+						# Check if we have a layout to install
+						if [ -f "$source_layout" ]; then
+							# Backup existing layout
+							if [ -f "$target_layout" ]; then
+								lecho "Backing up current layout"
+								mv "$target_layout" "${target_layout%.json}.bak" || { lecho_err "Failed to backup existing layout."; error=1; }
+							fi
 
+							# Copy new layout
+							cp "$source_layout" "$target_layout" || { lecho_err "Failed to copy new layout."; error=1; }
 
-
-				# Install required scripts
-				for script in "${add_scripts[@]}"; do
-					script=${script//$'\n'/} # Remove all newlines.
-
-					local installable_script="$scripts_source_path/$script.sh" 
-					local target_script="$scripts_install_path/$script.sh"
-
-					if [ -f "$installable_script" ]; then
-						if [ -f "$target_script" ]; then
-							local response=
-							lecho "Target script $target_script already exists. Proceeding with this operation will overwrite the existing script."
-							read -r -p "Do you wish to continue? [y/N] " response
-							case $response in
-								[yY][eE][sS]|[yY]) 
-									lecho "Installing script.."
-								;;
-								*)
-									lecho_err "Script installation for $installable_script cancelled!"
-									continue
-								;;
-							esac								
+							lecho "Layout installed successfully"
+							layout_installed=1
 						fi
-
-						lecho "Moving script $installable_script to $target_script"
-						if mv "$installable_script" "$target_script"; then
-							chown "$USER": "$target_script" && chmod +x "$target_script"
-							lecho "Successfully installed $target_script"
-						else
-							lecho_err "Failed to install $installable_script"
-							error=1
-							break
-						fi
-					else
-						lecho "Something is wrong! Installable script $installable_script does not exist in the profile package."
-						continue
-					fi
-				done
-
-				# Remove unwanted scripts
-				for script in "${remove_scripts[@]}"; do
-					script=${script//$'\n'/} # Remove all newlines.
-
-					local removable_script="$scripts_install_path/$script.sh"
-
-					if [ -f "$removable_script" ]; then
-						if rm "$removable_script"; then
-							lecho "Successfully removed $removable_script"
-						else
-							lecho_err "Failed to remove $removable_script"
-							error=1
-							break
-						fi
-					else
-						lecho "Script $removable_script does not exist at target location. Nothing to remove here!."
-					fi
-				done
-
-
-
-				# Define file paths
-				local source_template="$template_source_path/default.json"
-				local source_layout="$layout_source_path/default.json"
-				local target_template="$template_install_path/default.json"
-				local target_layout="$layout_install_path/default.json"
-
-				# Check if we have a template to install
-				if [ -f "$source_template" ]; then
-					# Backup existing template
-					if [ -f "$target_template" ]; then
-						lecho "Backing up current template"
-						mv "$target_template" "${target_template%.json}.bak" || { lecho_err "Failed to backup existing template."; error=1; }
-					fi
-
-					# Copy new template
-					cp "$source_template" "$target_template" || { lecho_err "Failed to copy new template."; error=1; }
-
-					# Check if we have a layout to install
-					if [ -f "$source_layout" ]; then
-						# Backup existing layout
-						if [ -f "$target_layout" ]; then
-							lecho "Backing up current layout"
-							mv "$target_layout" "${target_layout%.json}.bak" || { lecho_err "Failed to backup existing layout."; error=1; }
-						fi
-
-						# Copy new layout
-						cp "$source_layout" "$target_layout" || { lecho_err "Failed to copy new layout."; error=1; }
-
-						lecho "Layout installed successfully"
-						layout_installed=1
 					fi
 				fi
+
+
 
 
 				if [ "$error" -eq 1 ]; then
