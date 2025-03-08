@@ -3927,6 +3927,7 @@ install_profile()
 				fi
 
 
+				lecho "Installing modules"
 				
 				# Install required modules
 				for module in "${add_modules[@]}"; do				
@@ -3946,14 +3947,32 @@ install_profile()
 					# Copy over any specific configuration
 					if [ -f "$module_conf_source_file" ]; then
 						lecho "Copying over custom module configuration $module_conf_source_file to $module_conf_target_file"
-						mv "$module_conf_source_file" "$module_conf_target_file"							
-						chown "$USER": "$module_conf_target_file"			
+						if mv "$module_conf_source_file" "$module_conf_target_file"; then
+							if chown "$USER": "$module_conf_target_file"; then
+								lecho "Successfully moved and changed ownership of $module_conf_target_file"
+							else
+								lecho_err "Failed to change ownership of $module_conf_target_file"
+								error=1
+								break
+							fi
+						else
+							lecho_err "Failed to move $module_conf_source_file to $module_conf_target_file"
+							error=1
+							break
+						fi			
 					fi
 
 					# Enable required modules (only if config exists)
 					if [ -f "$module_conf_target_file" ]; then
 						local tmpfile="${module_conf_target_file/.json/.tmp}"
-						jq '.enabled = "true"' "$module_conf_target_file" > "$tmpfile" && mv "$tmpfile" "$module_conf_target_file"
+						if jq '.enabled = "true"' "$module_conf_target_file" > "$tmpfile" && mv "$tmpfile" "$module_conf_target_file"; then
+							lecho "Successfully updated $module_conf_target_file"
+						else
+							lecho_err "Failed to update $module_conf_target_file"
+							error=1
+							break
+						fi
+
 					fi
 				done
 
@@ -3970,24 +3989,45 @@ install_profile()
 						# Delete module file
 						if [ -f "$module_so_file" ]; then
 							lecho "Deleting module file $module_so_file"
-							rm "$module_so_file"
+							if rm "$module_so_file"; then
+								lecho "Successfully removed $module_so_file"
+							else
+								lecho_err "Failed to remove $module_so_file"
+								error=1
+								break
+							fi
+
 						elif [ -f "$module_py_file" ]; then
 							lecho "Deleting module file $module_py_file"
-							rm "$module_py_file"
+							if rm "$module_py_file"; then
+								lecho "Successfully removed $module_py_file"
+							else
+								lecho_err "Failed to remove $module_py_file"
+								error=1
+								break
+							fi
+
 						fi
 
 						# Delete module config file
 						if [ -f "$module_conf_file" ]; then
 							lecho "Deleting module config file $module_conf_file"
-							rm "$module_conf_file"
+							if rm "$module_conf_file"; then
+								lecho "Successfully removed $module_conf_file"
+							else
+								lecho_err "Failed to remove $module_conf_file"
+								error=1
+								break
+							fi
 						fi
 					done
 				fi
 				
 
-
+				
 
 				if [[ "$error" -eq 0 ]]; then
+					lecho "Installing rules"
 					# Install required rules
 					for rule in "${add_rules[@]}"; do
 						rule=${rule//$'\n'/} # Remove all newlines.
@@ -4053,8 +4093,11 @@ install_profile()
 				fi
 
 
+				
 
 				if [[ "$error" -eq 0 ]]; then
+					lecho "Installing scripts"
+
 					# Install required scripts
 					for script in "${add_scripts[@]}"; do
 						script=${script//$'\n'/} # Remove all newlines.
@@ -4114,9 +4157,12 @@ install_profile()
 				fi
 
 
+				
 
 
 				if [[ "$error" -eq 0 ]]; then
+					lecho "Installing layout"
+
 					# Define file paths
 					local source_template="$template_source_path/default.json"
 					local source_layout="$layout_source_path/default.json"
