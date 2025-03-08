@@ -4025,6 +4025,7 @@ install_profile()
 				
 
 				
+				
 
 				if [[ "$error" -eq 0 ]]; then
 					lecho "Installing rules"
@@ -4157,8 +4158,6 @@ install_profile()
 				fi
 
 
-				
-
 
 				if [[ "$error" -eq 0 ]]; then
 					lecho "Installing layout"
@@ -4169,34 +4168,35 @@ install_profile()
 					local target_template="$template_install_path/default.json"
 					local target_layout="$layout_install_path/default.json"
 
-					# Check if we have a template to install
-					if [ -f "$source_template" ]; then
-						# Backup existing template
-						if [ -f "$target_template" ]; then
-							lecho "Backing up current template"
-							mv "$target_template" "${target_template%.json}.bak" || { lecho_err "Failed to backup existing template."; error=1; }
+
+					# Check if we have a layout to install
+					if [ -f "$source_layout" ]; then
+						# Backup existing layout
+						if [ -f "$target_layout" ]; then
+							lecho "Backing up current layout"
+							mv "$target_layout" "${target_layout%.json}.bak" || { lecho_err "Failed to backup existing layout."; error=1; }
 						fi
 
-						# Copy new template
-						cp "$source_template" "$target_template" || { lecho_err "Failed to copy new template."; error=1; }
+						# Copy new layout
+						cp "$source_layout" "$target_layout" || { lecho_err "Failed to copy new layout."; error=1; }						
 
-						# Check if we have a layout to install
-						if [ -f "$source_layout" ]; then
-							# Backup existing layout
-							if [ -f "$target_layout" ]; then
-								lecho "Backing up current layout"
-								mv "$target_layout" "${target_layout%.json}.bak" || { lecho_err "Failed to backup existing layout."; error=1; }
+						# Check if we have a template to install
+						if [ -f "$source_template" ]; then
+							# Backup existing template
+							if [ -f "$target_template" ]; then
+								lecho "Backing up current template"
+								mv "$target_template" "${target_template%.json}.bak" || { lecho_err "Failed to backup existing template."; error=1; }
 							fi
 
-							# Copy new layout
-							cp "$source_layout" "$target_layout" || { lecho_err "Failed to copy new layout."; error=1; }
-
-							lecho "Layout installed successfully"
-							layout_installed=1
+							# Copy new template
+							cp "$source_template" "$target_template" || { lecho_err "Failed to copy new template."; error=1; }
+							lecho "Template installed!"
 						fi
-					fi
-				fi
 
+						lecho "Layout installed!"
+						layout_installed=1
+					fi					
+				fi
 
 
 
