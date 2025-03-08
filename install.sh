@@ -2522,8 +2522,8 @@ check_create_system_virtual_environment()
 	python=$(which "python$PYTHON_VERSION")
 	pipver=$(which pip3)
 
-	$python -m pip install --upgrade pip
-	$pipver install --upgrade setuptools wheel pip
+	$python -m pip install --no-cache-dir  --upgrade pip
+	$pipver install --no-cache-dir --upgrade setuptools wheel pip
 	
 	
 
@@ -2630,8 +2630,8 @@ check_create_pyenv_virtual_environment()
     fi
 
     echo "Upgrading pip and essential packages..."
-    python -m pip install --upgrade pip
-    pip install --upgrade setuptools wheel
+    python -m pip install --no-cache-dir --upgrade pip
+    pip install --no-cache-dir --upgrade setuptools wheel
 
     echo "Custom pyenv virtual environment is set up and ready to use at $VENV_FOLDER."
     virtual_environment_exists=1
@@ -2755,8 +2755,8 @@ activate_custom_pyenv_virtual_environment()
 
     # Upgrade pip and essential packages
     echo "Upgrading pip and essential packages..."
-    python -m pip install --upgrade pip
-    pip install --upgrade setuptools wheel
+    python -m pip install --no-cache-dir --upgrade pip
+    pip install --no-cache-dir --upgrade setuptools wheel
 }
 
 
@@ -2841,7 +2841,7 @@ install_pip_dependencies()
 		fi
 
 		echo "Installing: $clean_dependency"
-		if pip install "$clean_dependency"; then
+		if pip install --no-cache-dir  "$clean_dependency"; then
 			echo "Successfully installed: $clean_dependency"
 		else
 			echo "Failed to install: $clean_dependency"
@@ -2904,7 +2904,7 @@ install_module_dependencies()
 		local pip="$VENV_FOLDER/bin/pip3"
 
 		if [[ "$silent_mode" -eq 0 ]]; then
-			$pip install -r "$requirements_file"
+			$pip install --no-cache-dir -r "$requirements_file"
 			lecho "Module dependencies installed."
 		else
 			local result
@@ -3879,7 +3879,6 @@ install_profile()
 				local layout_install_path="$base_dir/cdsmaster/ui/layout"
 
 				local layout_installed=0
-				local profile_install_failed=0
 				local backup_dir=
 
 
@@ -3917,105 +3916,74 @@ install_profile()
 					result=$(<"$meta_file")				
 
 					local profile_name_json
-					profile_name_json=$(jq -r '.name' <<< "$result")
+					profile_name_json=$(jq -r '.name // ""' <<< "$result")
 
-					IFS=',' read -r -a add_dependencies <<< "$(jq -r '.dependencies.add | join(",")' <<< "$result")"
-					IFS=',' read -r -a add_modules <<< "$(jq -r '.modules.add | join(",")' <<< "$result")"
-					IFS=',' read -r -a remove_modules <<< "$(jq -r '.modules.remove | join(",")' <<< "$result")"
-					IFS=',' read -r -a add_rules <<< "$(jq -r '.rules.add | join(",")' <<< "$result")"
-					IFS=',' read -r -a remove_rules <<< "$(jq -r '.rules.remove | join(",")' <<< "$result")"
-					IFS=',' read -r -a add_scripts <<< "$(jq -r '.scripts.add | join(",")' <<< "$result")"
-					IFS=',' read -r -a remove_scripts <<< "$(jq -r '.scripts.remove | join(",")' <<< "$result")"
-				fi
-
-				# Install dependencies
-				local pip=
-				local VENV="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME"
-
-				# Check if the virtual environment folder exists
-				if [ -d "$VENV" ]; then
-					# Check for pip or pip3 inside the virtual environment
-					if [ -x "$VENV/bin/pip3" ]; then
-						pip="$VENV/bin/pip3"
-					elif [ -x "$VENV/bin/pip" ]; then
-						pip="$VENV/bin/pip"
-					fi
-
-					# Install dependencies into virtual environment
-					if [ -n "$pip" ]; then
-						for dependency in "${add_dependencies[@]}"; do
-							dependency=${dependency//$'\n'/}  # Remove all newlines (if needed)
-							if [ -n "$dependency" ]; then  # Ensure non-empty dependency
-								"$pip" install "$dependency"
-							fi
-						done
-					else
-						lecho_err "Neither pip3 nor pip found in the virtual environment at $VENV."
-						exit 1
-					fi
-				else
-					lecho_err "Virtual environment folder $VENV does not exist."
-					exit 1
+					IFS=',' read -r -a add_modules <<< "$(jq -r '.modules.add // [] | join(",")' <<< "$result")"
+					IFS=',' read -r -a remove_modules <<< "$(jq -r '.modules.remove // [] | join(",")' <<< "$result")"
+					IFS=',' read -r -a add_rules <<< "$(jq -r '.rules.add // [] | join(",")' <<< "$result")"
+					IFS=',' read -r -a remove_rules <<< "$(jq -r '.rules.remove // [] | join(",")' <<< "$result")"
+					IFS=',' read -r -a add_scripts <<< "$(jq -r '.scripts.add // [] | join(",")' <<< "$result")"
+					IFS=',' read -r -a remove_scripts <<< "$(jq -r '.scripts.remove // [] | join(",")' <<< "$result")"
 				fi
 
 
-				if [[ "$error" -eq 0 ]]; then
-					# Install required modules
-					for module in "${add_modules[@]}"; do				
+				
+				# Install required modules
+				for module in "${add_modules[@]}"; do				
+					module=${module//$'\n'/} # Remove all newlines.
+					
+					install_module "$module" "$DEFAULT_PROGRAM_PATH" true 0 1
+					
+					if [ "$module_install_success" -ne 1 ]; then  # Ensures it only fails if module_install_success is not set to success
+						err_message="Failed to install module $module."
+						error=1
+						break
+					fi
+
+					local module_conf_source_file="$module_conf_source_path/$module.json"
+					local module_conf_target_file="$module_conf_install_path/$module.json"			
+
+					# Copy over any specific configuration
+					if [ -f "$module_conf_source_file" ]; then
+						lecho "Copying over custom module configuration $module_conf_source_file to $module_conf_target_file"
+						mv "$module_conf_source_file" "$module_conf_target_file"							
+						chown "$USER": "$module_conf_target_file"			
+					fi
+
+					# Enable required modules (only if config exists)
+					if [ -f "$module_conf_target_file" ]; then
+						local tmpfile="${module_conf_target_file/.json/.tmp}"
+						jq '.enabled = "true"' "$module_conf_target_file" > "$tmpfile" && mv "$tmpfile" "$module_conf_target_file"
+					fi
+				done
+
+				# If no module installation errors -> continue profile setup				
+				if [[ "$module_install_success" -eq 1 ]]; then
+					# Remove unwanted modules
+					for module in "${remove_modules[@]}"; do
 						module=${module//$'\n'/} # Remove all newlines.
-						
-						install_module "$module" "$DEFAULT_PROGRAM_PATH" true 0 1
-						
-						if [ "$module_install_success" -ne 1 ]; then  # Ensures it only fails if module_install_success is not set to success
-							err_message="Failed to install module $module."
-							error=1
-							break
+
+						local module_so_file="$module_install_path/$module.so"
+						local module_py_file="$module_install_path/$module.py"
+						local module_conf_file="$module_conf_install_path/$module.json"
+
+						# Delete module file
+						if [ -f "$module_so_file" ]; then
+							lecho "Deleting module file $module_so_file"
+							rm "$module_so_file"
+						elif [ -f "$module_py_file" ]; then
+							lecho "Deleting module file $module_py_file"
+							rm "$module_py_file"
 						fi
 
-						local module_conf_source_file="$module_conf_source_path/$module.json"
-						local module_conf_target_file="$module_conf_install_path/$module.json"			
-
-						# Copy over any specific configuration
-						if [ -f "$module_conf_source_file" ]; then
-							lecho "Copying over custom module configuration $module_conf_source_file to $module_conf_target_file"
-							mv "$module_conf_source_file" "$module_conf_target_file"							
-							chown "$USER": "$module_conf_target_file"			
-						fi
-
-						# Enable required modules (only if config exists)
-						if [ -f "$module_conf_target_file" ]; then
-							local tmpfile="${module_conf_target_file/.json/.tmp}"
-							jq '.enabled = "true"' "$module_conf_target_file" > "$tmpfile" && mv "$tmpfile" "$module_conf_target_file"
+						# Delete module config file
+						if [ -f "$module_conf_file" ]; then
+							lecho "Deleting module config file $module_conf_file"
+							rm "$module_conf_file"
 						fi
 					done
-
-					# If no module installation errors -> continue profile setup				
-					if [[ "$module_install_success" -eq 1 ]]; then
-						# Remove unwanted modules
-						for module in "${remove_modules[@]}"; do
-							module=${module//$'\n'/} # Remove all newlines.
-
-							local module_so_file="$module_install_path/$module.so"
-							local module_py_file="$module_install_path/$module.py"
-							local module_conf_file="$module_conf_install_path/$module.json"
-
-							# Delete module file
-							if [ -f "$module_so_file" ]; then
-								lecho "Deleting module file $module_so_file"
-								rm "$module_so_file"
-							elif [ -f "$module_py_file" ]; then
-								lecho "Deleting module file $module_py_file"
-								rm "$module_py_file"
-							fi
-
-							# Delete module config file
-							if [ -f "$module_conf_file" ]; then
-								lecho "Deleting module config file $module_conf_file"
-								rm "$module_conf_file"
-							fi
-						done
-					fi
 				fi
+				
 
 
 
@@ -6067,7 +6035,7 @@ post_download_install()
 				
 			fi
 
-			post_update_deb
+			post_update_deb_cleanup
 
 			# register cron for update
 			# deregister_updater && register_updater
@@ -6700,9 +6668,10 @@ prerequisites_update_deb()
 # RETURN:
 #	
 #############################################
-post_update_deb()
+post_update_deb_cleanup()
 {	
-	seudo apt-get clean && rm -rf /var/lib/apt/lists/*
+	seudo apt-get remove -y gcc build-essential && seudo apt-get autoremove -y && \
+	seudo apt-get clean && rm -rf /var/lib/apt/lists/* ~/.cache/pip
 }
 
 
