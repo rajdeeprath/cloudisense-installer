@@ -2522,8 +2522,8 @@ check_create_system_virtual_environment()
 	python=$(which "python$PYTHON_VERSION")
 	pipver=$(which pip3)
 
-	$python -m pip install --upgrade pip
-	$pipver install --upgrade setuptools wheel pip
+	$python -m pip install --no-cache-dir  --upgrade pip
+	$pipver install --no-cache-dir --upgrade setuptools wheel pip
 	
 	
 
@@ -2630,8 +2630,8 @@ check_create_pyenv_virtual_environment()
     fi
 
     echo "Upgrading pip and essential packages..."
-    python -m pip install --upgrade pip
-    pip install --upgrade setuptools wheel
+    python -m pip install --no-cache-dir --upgrade pip
+    pip install --no-cache-dir --upgrade setuptools wheel
 
     echo "Custom pyenv virtual environment is set up and ready to use at $VENV_FOLDER."
     virtual_environment_exists=1
@@ -2755,8 +2755,8 @@ activate_custom_pyenv_virtual_environment()
 
     # Upgrade pip and essential packages
     echo "Upgrading pip and essential packages..."
-    python -m pip install --upgrade pip
-    pip install --upgrade setuptools wheel
+    python -m pip install --no-cache-dir --upgrade pip
+    pip install --no-cache-dir --upgrade setuptools wheel
 }
 
 
@@ -2841,7 +2841,7 @@ install_pip_dependencies()
 		fi
 
 		echo "Installing: $clean_dependency"
-		if pip install "$clean_dependency"; then
+		if pip install --no-cache-dir  "$clean_dependency"; then
 			echo "Successfully installed: $clean_dependency"
 		else
 			echo "Failed to install: $clean_dependency"
@@ -2904,7 +2904,7 @@ install_module_dependencies()
 		local pip="$VENV_FOLDER/bin/pip3"
 
 		if [[ "$silent_mode" -eq 0 ]]; then
-			$pip install -r "$requirements_file"
+			$pip install --no-cache-dir -r "$requirements_file"
 			lecho "Module dependencies installed."
 		else
 			local result
@@ -3572,6 +3572,13 @@ install_module()
 					fi
 					mv "$j" "$deploy_path"/conf/"$module_name".json
 					chown "$USER": "$deploy_path/conf/$module_name.json"
+
+					# enable required modules
+					local conf_target_file="$deploy_path/conf/$module_name.json"
+					local tmpfile="${conf_target_file/.json/.tmp}"
+					jq '.enabled = "true"' "$conf_target_file" > "$tmpfile"
+					mv "$tmpfile" "$conf_target_file"
+
 				elif [[ $name == *".py" ]]; then					
 					# Move tmp file to main location
 					if [[ "$silent_mode" -eq 0 ]]; then
@@ -3670,6 +3677,129 @@ remove_module()
 
 
 
+##################################################
+# Backup folders targetted by profile installation  
+#
+#
+# RETURN:
+#		
+##################################################
+backup_profile_targets() {
+    if [ $# -ne 5 ]; then
+        lecho_err "Usage: backup_profile_targets <module_path> <rules_path> <scripts_path> <template_path> <layout_path>"
+        return 0
+    fi
+
+    local module_install_path="$1"
+    local rules_install_path="$2"
+    local scripts_install_path="$3"
+    local template_install_path="$4"
+    local layout_install_path="$5"
+
+    # Verify all paths exist before proceeding
+    for path in "$module_install_path" "$rules_install_path" "$scripts_install_path" "$template_install_path" "$layout_install_path"; do
+        if [ ! -d "$path" ] && [ ! -f "$path/default.json" ]; then
+            lecho_err "Error: Required path $path does not exist."
+            return 0
+        fi
+    done
+
+    # Create backup directory
+    local backup_dir="/tmp/install_backup_$(date +%s)"
+    mkdir -p "$backup_dir"
+
+    # Back up directories and files
+    cp -r "$module_install_path" "$backup_dir/modules" 2>/dev/null
+    cp -r "$rules_install_path" "$backup_dir/rules" 2>/dev/null
+    cp -r "$scripts_install_path" "$backup_dir/scripts" 2>/dev/null
+    cp "$template_install_path/default.json" "$backup_dir/default_template.json" 2>/dev/null
+    cp "$layout_install_path/default.json" "$backup_dir/default_layout.json" 2>/dev/null
+
+    if [ $? -eq 0 ]; then
+        lecho "Backup completed at: $backup_dir"
+        echo "$backup_dir"  # Return the backup directory path
+        return 0
+    else
+        lecho_err "Backup failed."
+        return 0
+    fi
+}
+
+
+
+
+
+
+
+##################################################
+# Restore folders targetted by profile installation  
+#
+#
+# RETURN:
+#		
+##################################################
+restore_profile_targets() {
+    if [ $# -ne 6 ]; then
+        lecho_err "Usage: restore_profile_targets <backup_dir> <module_path> <rules_path> <scripts_path> <template_path> <layout_path>"
+        return 1
+    fi
+
+    local backup_dir="$1"
+    local module_install_path="$2"
+    local rules_install_path="$3"
+    local scripts_install_path="$4"
+    local template_install_path="$5"
+    local layout_install_path="$6"
+
+    # Verify backup directory exists
+    if [ ! -d "$backup_dir" ]; then
+        lecho_err "Backup directory $backup_dir does not exist. Cannot restore."
+        return 1
+    fi
+
+    lecho "Restoring from backup at $backup_dir..."
+
+    # Restore modules, rules, and scripts if they exist in the backup
+    if [ -d "$backup_dir/modules" ]; then
+        cp -r "$backup_dir/modules" "$module_install_path" && lecho "Modules restored."
+    else
+        lecho_warn "No modules backup found."
+    fi
+
+    if [ -d "$backup_dir/rules" ]; then
+        cp -r "$backup_dir/rules" "$rules_install_path" && lecho "Rules restored."
+    else
+        lecho_warn "No rules backup found."
+    fi
+
+    if [ -d "$backup_dir/scripts" ]; then
+        cp -r "$backup_dir/scripts" "$scripts_install_path" && lecho "Scripts restored."
+    else
+        lecho_warn "No scripts backup found."
+    fi
+
+    # Restore template and layout files
+    if [ -f "$backup_dir/default_template.json" ]; then
+        cp "$backup_dir/default_template.json" "$template_install_path/default.json" && lecho "Template restored."
+    else
+        lecho_warn "No template backup found."
+    fi
+
+    if [ -f "$backup_dir/default_layout.json" ]; then
+        cp "$backup_dir/default_layout.json" "$layout_install_path/default.json" && lecho "Layout restored."
+    else
+        lecho_warn "No layout backup found."
+    fi
+
+    lecho "Restore completed."
+}
+
+
+
+
+
+
+
 #############################################
 # Installs a cloudisense profile meant for current 
 # platform/python version from the archives to
@@ -3699,12 +3829,11 @@ install_profile()
 	local return_status=0
 	local silent_mode=0
 	local error=0
-	local err_message=	
+	local err_message=""
 
 	check_current_installation 1 1
 
 	if [ "$program_exists" -eq 1 ]; then
-
 		if [ $# -lt 1 ]; then
 			error=1
 			err_message="Minimum of 1 parameter is required!"
@@ -3723,12 +3852,12 @@ install_profile()
 			local url
 			url=$(get_profile_url "$profile_name")
 
-			if [ -z ${url+x} ]; then
+			if [ -z "$url" ]; then  # Fixed incorrect check
 				error=1
 				err_message="Profile not found/cannot be installed!"
 			fi
 
-			# ALL OK -> Do Ops		
+			# ALL Params OK -> Do Ops		
 			if [[ "$error" -eq 0 ]]; then
 				local tmp_dir
 				tmp_dir=$(mktemp -d -t ci-XXXXXXXXXX)				
@@ -3742,7 +3871,6 @@ install_profile()
 				local template_source_path="$profile_package_path/ui/template"
 				local layout_source_path="$profile_package_path/ui/layout"
 				
-				
 				local module_install_path="$base_dir/cdsmaster/modules"
 				local module_conf_install_path="$base_dir/cdsmaster/modules/conf"
 				local scripts_install_path="$base_dir/scripts"
@@ -3751,69 +3879,63 @@ install_profile()
 				local layout_install_path="$base_dir/cdsmaster/ui/layout"
 
 				local layout_installed=0
+				local backup_dir=
 
-				# extract profile archive to a tmp location
 
-				wget -O "$profile_archive" "$url"
-				unzip "$profile_archive" -d "$profile_package_path"	
-
-				# read meta file
-				local meta_file="$profile_package_path/meta.json"
-
-				local result
-				result=$(<"$meta_file")				
-
-				local profile_name
-				profile_name=$(jq -r '.name' <<< "$result")
-
-		
-				IFS=',' read -r -a add_dependencies <<< "$(jq -r '.dependencies.add[]' <<< "$result" | tr '\n' ',')"
-				IFS=',' read -r -a add_modules <<< "$(jq -r '.modules.add[]' <<< "$result" | tr '\n' ',')"
-				IFS=',' read -r -a remove_modules <<< "$(jq -r '.modules.remove[]' <<< "$result" | tr '\n' ',')"
-				IFS=',' read -r -a add_rules <<< "$(jq -r '.rules.add[]' <<< "$result" | tr '\n' ',')"
-				IFS=',' read -r -a remove_rules <<< "$(jq -r '.rules.remove[]' <<< "$result" | tr '\n' ',')"
-				IFS=',' read -r -a add_scripts <<< "$(jq -r '.scripts.add[]' <<< "$result" | tr '\n' ',')"
-				IFS=',' read -r -a remove_scripts <<< "$(jq -r '.scripts.remove[]' <<< "$result" | tr '\n' ',')"
-
-				
-				# install dependencies
-				local pip=
-				local VENV="$PYTHON_VIRTUAL_ENV_LOCATION/$PROGRAM_FOLDER_NAME"
-
-				# Check if the virtual environment folder exists
-				if [ -d "$VENV" ]; then
-					# Check for pip or pip3 inside the virtual environment
-					if [ -x "$VENV/bin/pip3" ]; then
-						pip="$VENV/bin/pip3"
-					elif [ -x "$VENV/bin/pip" ]; then
-						pip="$VENV/bin/pip"
-					fi
-
-					# install dependencies into virtual environment
-					if [ -n "$pip" ]; then						
-						for dependency in "${add_dependencies[@]}"
-						do				
-							dependency=${dependency//$'\n'/} # Remove all newlines.							
-							"$pip" install "$dependency"
-						done
-					else
-						lecho_err "Neither pip3 nor pip found in the virtual environment at $VENV." && exit 1
-					fi
+				# Create backup of profile target areas
+				backup_profile_targets "$module_install_path" "$rules_install_path" "$scripts_install_path" "$template_install_path" "$layout_install_path"
+				if [ "$backup_dir" != "0" ]; then
+					echo "Backup successful at: $backup_dir"
 				else
-					lecho_err "Virtual environment folder $VENV does not exist." && exit 1
+					echo "Backup failed!"
+					exit 1
 				fi
 
 
+				# Download profile archive
+				if ! wget -O "$profile_archive" "$url"; then
+					error=1
+					err_message="Failed to download profile archive."
+				fi
 
-				# install required modules
+				# Extract profile archive to a tmp location
+				if [[ "$error" -eq 0 ]]; then
+					unzip "$profile_archive" -d "$profile_package_path"
+				fi
 
-				for module in "${add_modules[@]}"
-				do				
+				# Read meta file
+				local meta_file="$profile_package_path/meta.json"
+
+				if [[ ! -f "$meta_file" ]]; then
+					error=1
+					err_message="Meta file not found in profile archive!"
+				fi
+
+				if [[ "$error" -eq 0 ]]; then
+					local result
+					result=$(<"$meta_file")				
+
+					local profile_name_json
+					profile_name_json=$(jq -r '.name // ""' <<< "$result")
+
+					IFS=',' read -r -a add_modules <<< "$(jq -r '.modules.add // [] | join(",")' <<< "$result")"
+					IFS=',' read -r -a remove_modules <<< "$(jq -r '.modules.remove // [] | join(",")' <<< "$result")"
+					IFS=',' read -r -a add_rules <<< "$(jq -r '.rules.add // [] | join(",")' <<< "$result")"
+					IFS=',' read -r -a remove_rules <<< "$(jq -r '.rules.remove // [] | join(",")' <<< "$result")"
+					IFS=',' read -r -a add_scripts <<< "$(jq -r '.scripts.add // [] | join(",")' <<< "$result")"
+					IFS=',' read -r -a remove_scripts <<< "$(jq -r '.scripts.remove // [] | join(",")' <<< "$result")"
+				fi
+
+
+				lecho "Installing modules"
+				
+				# Install required modules
+				for module in "${add_modules[@]}"; do				
 					module=${module//$'\n'/} # Remove all newlines.
-					#local install_error=$(install_module $module $DEFAULT_PROGRAM_PATH true 1)
+					
 					install_module "$module" "$DEFAULT_PROGRAM_PATH" true 0 1
 					
-					if [ "$module_install_success" -eq 1 ]; then					
+					if [ "$module_install_success" -ne 1 ]; then  # Ensures it only fails if module_install_success is not set to success
 						err_message="Failed to install module $module."
 						error=1
 						break
@@ -3822,65 +3944,100 @@ install_profile()
 					local module_conf_source_file="$module_conf_source_path/$module.json"
 					local module_conf_target_file="$module_conf_install_path/$module.json"			
 
-					# copy over any specific configuration
+					# Copy over any specific configuration
 					if [ -f "$module_conf_source_file" ]; then
 						lecho "Copying over custom module configuration $module_conf_source_file to $module_conf_target_file"
-						mv "$module_conf_source_file" "$module_conf_target_file"							
-						chown "$USER": "$module_conf_target_file"			
+						if mv "$module_conf_source_file" "$module_conf_target_file"; then
+							if chown "$USER": "$module_conf_target_file"; then
+								lecho "Successfully moved and changed ownership of $module_conf_target_file"
+							else
+								lecho_err "Failed to change ownership of $module_conf_target_file"
+								error=1
+								break
+							fi
+						else
+							lecho_err "Failed to move $module_conf_source_file to $module_conf_target_file"
+							error=1
+							break
+						fi			
 					fi
 
-					# enable required modules
-					local tmpfile="${module_conf_target_file/.json/.tmp}"
-					jq '.enabled = "true"' "$module_conf_target_file" > "$tmpfile"
-					mv "$tmpfile" "$module_conf_target_file"
+					# Enable required modules (only if config exists)
+					if [ -f "$module_conf_target_file" ]; then
+						local tmpfile="${module_conf_target_file/.json/.tmp}"
+						if jq '.enabled = "true"' "$module_conf_target_file" > "$tmpfile" && mv "$tmpfile" "$module_conf_target_file"; then
+							lecho "Successfully updated $module_conf_target_file"
+						else
+							lecho_err "Failed to update $module_conf_target_file"
+							error=1
+							break
+						fi
+
+					fi
 				done
 
-				# If no module installer error -> continue profile setup				
-
+				# If no module installation errors -> continue profile setup				
 				if [[ "$module_install_success" -eq 1 ]]; then
-
-					# remove unwanted modules
-					for module in "${remove_modules[@]}"
-					do
+					# Remove unwanted modules
+					for module in "${remove_modules[@]}"; do
 						module=${module//$'\n'/} # Remove all newlines.
 
 						local module_so_file="$module_install_path/$module.so"
 						local module_py_file="$module_install_path/$module.py"
 						local module_conf_file="$module_conf_install_path/$module.json"
 
-						# delete module file
+						# Delete module file
 						if [ -f "$module_so_file" ]; then
 							lecho "Deleting module file $module_so_file"
-							rm "$module_so_file"
+							if rm "$module_so_file"; then
+								lecho "Successfully removed $module_so_file"
+							else
+								lecho_err "Failed to remove $module_so_file"
+								error=1
+								break
+							fi
+
 						elif [ -f "$module_py_file" ]; then
 							lecho "Deleting module file $module_py_file"
-							rm "$module_py_file"
+							if rm "$module_py_file"; then
+								lecho "Successfully removed $module_py_file"
+							else
+								lecho_err "Failed to remove $module_py_file"
+								error=1
+								break
+							fi
+
 						fi
 
-						# delete module conf file
+						# Delete module config file
 						if [ -f "$module_conf_file" ]; then
 							lecho "Deleting module config file $module_conf_file"
-							rm "$module_conf_file"
+							if rm "$module_conf_file"; then
+								lecho "Successfully removed $module_conf_file"
+							else
+								lecho_err "Failed to remove $module_conf_file"
+								error=1
+								break
+							fi
 						fi
-
 					done
+				fi
+				
 
+				
+				
 
-					# install required rules
-
-					for rule in "${add_rules[@]}"
-					do
-
+				if [[ "$error" -eq 0 ]]; then
+					lecho "Installing rules"
+					# Install required rules
+					for rule in "${add_rules[@]}"; do
 						rule=${rule//$'\n'/} # Remove all newlines.
 
 						local installable_rule="$rules_source_path/$rule.json" 
 						local target_rule="$rules_install_path/$rule.json"
 
 						if [ -f "$installable_rule" ]; then
-
 							if [ -f "$target_rule" ]; then
-
-								local response=
 								lecho "Target $target_rule rule already exists. Proceeding with this operation will overwrite the existing rule."
 								read -r -p "Do you wish to continue? [y/N] " response
 								case $response in
@@ -3888,55 +4045,68 @@ install_profile()
 										lecho "Installing rule.."
 									;;
 									*)
-										error=1
 										lecho_err "Rule installation for $installable_rule cancelled!"
 										continue
 									;;
 								esac
-								
 							fi
 
 							lecho "Moving rule $installable_rule to $target_rule"
-							mv "$installable_rule" "$target_rule"
-							chown "$USER": "$target_rule"
-						else
-							lecho "Something is wrong! Installable rule $installable_rule does not exist in the profile package."					
-						fi
+							if mv "$installable_rule" "$target_rule"; then
+								if chown "$USER": "$target_rule"; then
+									lecho "Successfully installed and set permissions for $target_rule"
+								else
+									lecho_err "Failed to change ownership of $target_rule"
+									error=1
+									break
+								fi
+							else
+								lecho_err "Failed to move $installable_rule to $target_rule"
+								error=1
+								break
+							fi
 
+						else
+							lecho "Something is wrong! Installable rule $installable_rule does not exist in the profile package."
+							continue
+						fi
 					done
 
-
-
-					# remove unwanted rules
-
-					for rule in "${remove_rules[@]}"
-					do
-
+					# Remove unwanted rules
+					for rule in "${remove_rules[@]}"; do
 						rule=${rule//$'\n'/} # Remove all newlines.
 
 						local removable_rule="$rules_install_path/$rule.json"
 
 						if [ -f "$removable_rule" ]; then
-							rm "$removable_rule"
+							if rm "$removable_rule"; then
+								lecho "Successfully removed $removable_rule"
+							else
+								lecho_err "Failed to remove $removable_rule"
+								error=1
+								break
+							fi
+
 						else
-							lecho "Rule $removable_rule does not exist at target location. Nothing to remove here!."					
+							lecho "Rule $removable_rule does not exist at target location. Nothing to remove here!."
 						fi
-
 					done
+				fi
 
 
-					# install required scripts
+				
 
-					for script in "${add_scripts[@]}"
-					do
+				if [[ "$error" -eq 0 ]]; then
+					lecho "Installing scripts"
 
+					# Install required scripts
+					for script in "${add_scripts[@]}"; do
 						script=${script//$'\n'/} # Remove all newlines.
 
 						local installable_script="$scripts_source_path/$script.sh" 
 						local target_script="$scripts_install_path/$script.sh"
 
 						if [ -f "$installable_script" ]; then
-
 							if [ -f "$target_script" ]; then
 								local response=
 								lecho "Target script $target_script already exists. Proceeding with this operation will overwrite the existing script."
@@ -3946,44 +4116,51 @@ install_profile()
 										lecho "Installing script.."
 									;;
 									*)
-										error=1
-										lecho_err "Script installation for $installable_rule cancelled!"
+										lecho_err "Script installation for $installable_script cancelled!"
 										continue
 									;;
 								esac								
 							fi
 
 							lecho "Moving script $installable_script to $target_script"
-							mv "$installable_script" "$target_script"
-							chown "$USER": "$target_script"
-							chmod +x "$target_script"
+							if mv "$installable_script" "$target_script"; then
+								chown "$USER": "$target_script" && chmod +x "$target_script"
+								lecho "Successfully installed $target_script"
+							else
+								lecho_err "Failed to install $installable_script"
+								error=1
+								break
+							fi
 						else
-							lecho "Something is wrong! Installable script $installable_script does not exist in the profile package."					
+							lecho "Something is wrong! Installable script $installable_script does not exist in the profile package."
+							continue
 						fi
-
 					done
 
-
-					# remove unwanted scripts
-
-					for script in "${remove_scripts[@]}"
-					do
-
+					# Remove unwanted scripts
+					for script in "${remove_scripts[@]}"; do
 						script=${script//$'\n'/} # Remove all newlines.
 
 						local removable_script="$scripts_install_path/$script.sh"
 
 						if [ -f "$removable_script" ]; then
-							rm "$removable_script"
+							if rm "$removable_script"; then
+								lecho "Successfully removed $removable_script"
+							else
+								lecho_err "Failed to remove $removable_script"
+								error=1
+								break
+							fi
 						else
-							lecho "Script $removable_script does not exist at target location. Nothing to remove here!."					
+							lecho "Script $removable_script does not exist at target location. Nothing to remove here!."
 						fi
-
 					done
+				fi
 
 
-					# install template and profile if available
-					
+
+				if [[ "$error" -eq 0 ]]; then
+					lecho "Installing layout"
 
 					# Define file paths
 					local source_template="$template_source_path/default.json"
@@ -3991,102 +4168,72 @@ install_profile()
 					local target_template="$template_install_path/default.json"
 					local target_layout="$layout_install_path/default.json"
 
-					# Check if we have template to install
-					if [ -f "$source_template" ]; then
-						# Check if target_template exists and back it up if necessary
-						if [ -f "$target_template" ]; then
-							lecho "Backing up current template"
-							mv "$target_template" "${target_template%.json}.bak"
-						fi
-						# Copy source_template to target_template
-						cp "$source_template" "$target_template"
-						
-						# Check if we have layout to install
-						if [ -f "$source_layout" ]; then
-							# Check if target_layout exists and back it up if necessary
-							if [ -f "$target_layout" ]; then
+
+					# Check if we have a layout to install
+					if [ -f "$source_layout" ]; then
+						# Backup existing layout
+						if [ -f "$target_layout" ]; then
 							lecho "Backing up current layout"
-							mv "$target_layout" "${target_layout%.json}.bak"
-							fi
-							# Copy source_layout to target_layout
-							cp "$source_layout" "$target_layout"
-							
-							lecho "Layout installed successfully"
-							layout_installed=1
+							mv "$target_layout" "${target_layout%.json}.bak" || { lecho_err "Failed to backup existing layout."; error=1; }
 						fi
-					fi
+
+						# Copy new layout
+						cp "$source_layout" "$target_layout" || { lecho_err "Failed to copy new layout."; error=1; }						
+
+						# Check if we have a template to install
+						if [ -f "$source_template" ]; then
+							# Backup existing template
+							if [ -f "$target_template" ]; then
+								lecho "Backing up current template"
+								mv "$target_template" "${target_template%.json}.bak" || { lecho_err "Failed to backup existing template."; error=1; }
+							fi
+
+							# Copy new template
+							cp "$source_template" "$target_template" || { lecho_err "Failed to copy new template."; error=1; }
+							lecho "Template installed!"
+						fi
+
+						lecho "Layout installed!"
+						layout_installed=1
+					fi					
+				fi
 
 
 
+				if [ "$error" -eq 1 ]; then
+					echo "Installation suffered error. Process will rollback"
+					restore_profile_targets "$backup_dir" "$module_install_path" "$rules_install_path" "$scripts_install_path" "$template_install_path" "$layout_install_path"
+				else					
 					# once eveything is done mark current profile selection 
 					# => store active profile somewhere
 					if [ ! -f "$PROGRAM_INSTALLATION_REPORT_FILE" ]; then
 						echo "No installation report found."
+						# rollback
 					else
 						update_installation_meta "$profile_name" "$layout_installed"
+
+						if is_service_installed; then
+							if is_service_running; then
+								lecho "Processing completed. Restart $PROGRAM_NAME service to apply changes"
+								restart_service
+							fi
+						fi
 					fi
-
-
-					# restart service
-					restart_service
-
-
-					#if [[ "$return_status" -eq 1 ]]; then
-					#	error=0 && echo $error
-					#else
-					#	lecho "Processing completed. You may want to restart $PROGRAM_NAME service"
-					#fi
-
-				else
-
-					# If there is module instalaltion error during profile installation,
-					# we remove all profile related modules
-					
-					for module in "${add_modules[@]}"
-					do
-
-						module=${module//$'\n'/} # Remove all newlines.
-
-						local module_so_file="$module_install_path/$module.so"
-						local module_py_file="$module_install_path/$module.py"
-						local module_conf_file="$module_conf_install_path/$module.json"
-
-						# delete module file
-						if [ -f "$module_so_file" ]; then
-							lecho "Deleting module file $module_so_file"
-							rm "$module_so_file"
-						elif [ -f "$module_py_file" ]; then
-							lecho "Deleting module file $module_py_file"
-							rm "$module_py_file"
-						fi
-
-						# delete module conf file
-						if [ -f "$module_conf_file" ]; then
-							lecho "Deleting module config file $module_conf_file"
-							rm "$module_conf_file"
-						fi
-
-					done
-
-
-					if [[ "$return_status" -eq 1 ]]; then
-						error=1 && echo $error
-					else
-						lecho_err "Error in module installation to install module $err_message."
-					fi									
-				fi				
+				fi
+							
 			else
 				if [[ "$return_status" -eq 1 ]]; then
-					error=1 && echo $error
+					error=1
+					echo "$error"
 				else
 					lecho_err "An error occurred. $err_message"
 				fi
 			fi
 		fi	
 	else
-
 		if [[ "$return_status" -eq 1 ]]; then
-			error=1 && echo $error
+			error=1
+			echo "$error"
 		else
 			lecho_err "Program core was not found. Please install the program before attempting to install profiles."
 		fi		
@@ -5934,7 +6081,7 @@ post_download_install()
 				
 			fi
 
-			post_update_deb
+			post_update_deb_cleanup
 
 			# register cron for update
 			# deregister_updater && register_updater
@@ -6567,9 +6714,10 @@ prerequisites_update_deb()
 # RETURN:
 #	
 #############################################
-post_update_deb()
+post_update_deb_cleanup()
 {	
-	seudo apt-get clean && rm -rf /var/lib/apt/lists/*
+	seudo apt-get remove -y gcc build-essential && seudo apt-get autoremove -y && \
+	seudo apt-get clean && rm -rf /var/lib/apt/lists/* ~/.cache/pip
 }
 
 
