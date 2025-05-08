@@ -6218,10 +6218,15 @@ load_configuration()
 	    ARCHIVES_URL=$(echo 'aHR0cHM6Ly9jbG91ZGlzZW5zZS5zMy51cy1lYXN0LTEuYW1hem9uYXdzLmNvbS9hcmNoaXZlcy5qc29u' | base64 --decode)
 		lecho "Checking archives manifest from $ARCHIVES_URL"
 
-		if ! ARCHIVES_JSON=$(curl -s --fail "$ARCHIVES_URL"); then
+		if ! ARCHIVES_JSON=$(curl -sSfL "$ARCHIVES_URL"); then
 			lecho_err "Unable to fetch information about requested version: $CLOUDISENSE_VERSION"
 			exit 1
-    	fi
+		fi
+
+		if [ -z "$ARCHIVES_JSON" ]; then
+			lecho_err "Fetched archive manifest is empty for version: $CLOUDISENSE_VERSION"
+			exit 1
+		fi
 
 		MANIFEST_URL=$(echo "$ARCHIVES_JSON" | grep -A 3 "\"$CLOUDISENSE_VERSION\"" | grep '"manifest"' | sed -E 's/.*"manifest": *"(.*)".*/\1/')
 
