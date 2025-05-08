@@ -3101,46 +3101,61 @@ get_install_info()
 {
 	local UNIQ=$(date +%s)
 
-    # Fetch central manifest with a timestamp to avoid caching issues
-	local response=$(curl --write-out '%{http_code}' --silent --output /dev/null "$PROGRAM_MANIFEST_LOCATION?$UNIQ")
+	if [ -z "$BUILD_MANIFEST_LOCATION" ]; then
+		
+		echo "BUILD_MANIFEST_LOCATION is not set"
 
-    if [[ "$response" -ne 200 ]]; then
-        lecho_err "Failed to fetch central manifest. HTTP response code: $response"
-        exit 1
-    fi
-
-
-	# Now fetch the full central manifest content    
-    local central_manifest_response=$(curl -H 'Cache-Control: no-cache' -sk "$PROGRAM_MANIFEST_LOCATION?$UNIQ")
-	
-
-    if [[ -z "$central_manifest_response" ]]; then
-        lecho_err "Failed to fetch central manifest data."
-        exit 1
-    fi
+		# Fetch central manifest with a timestamp to avoid caching issues
+		local response=$(curl --connect-timeout 5 --max-time 15 --write-out '%{http_code}' --silent --output /dev/null "$PROGRAM_MANIFEST_LOCATION?$UNIQ")
 
 
-	# Extract key information from central manifest
-	local manifest_url package_version changes
-	manifest_url=$(echo "$central_manifest_response" | jq -r '.manifest')
-	package_version=$(echo "$central_manifest_response" | jq -r '.version')
-	changes=$(echo "$central_manifest_response" | jq -r '.changes')
+		if [[ "$response" -ne 200 ]]; then
+			lecho_err "Failed to fetch central manifest. HTTP response code: $response"
+			exit 1
+		fi
 
-	# Fix: Check the correct variables
-	if [[ -z "$manifest_url" || -z "$package_version" ]]; then
-		lecho_err "Central manifest is missing required fields."
-		exit 1
+
+		# Now fetch the full central manifest content    
+		local central_manifest_response=$(curl --connect-timeout 5 --max-time 15 -H 'Cache-Control: no-cache' -sk "$PROGRAM_MANIFEST_LOCATION?$UNIQ")
+
+
+		if ! echo "$central_manifest_response" | jq empty > /dev/null 2>&1; then
+			lecho_err "Central manifest is not valid JSON."
+			exit 1
+		fi
+
+		
+
+		if [[ -z "$central_manifest_response" ]]; then
+			lecho_err "Failed to fetch central manifest data."
+			exit 1
+		fi
+
+
+		# Extract key information from central manifest
+		local manifest_url package_version changes
+		manifest_url=$(echo "$central_manifest_response" | jq -r '.manifest')
+		package_version=$(echo "$central_manifest_response" | jq -r '.version')
+		changes=$(echo "$central_manifest_response" | jq -r '.changes')
+
+		# Fix: Check the correct variables
+		if [[ -z "$manifest_url" || -z "$package_version" ]]; then
+			lecho_err "Central manifest is missing required fields."
+			exit 1
+		fi
+
+		lecho "Central Manifest Read Successfully"
+		lecho "Version: $package_version"
+		lecho "Changes: $changes"
+		lecho "Fetching build manifest from: $manifest_url"
+	else
+		manifest_url="$BUILD_MANIFEST_LOCATION"
 	fi
 
-	lecho "Central Manifest Read Successfully"
-	lecho "Version: $package_version"
-	lecho "Changes: $changes"
-	lecho "Fetching build manifest from: $manifest_url"
-
-
-
+    
 	# Fetch the actual build manifest with a timestamp
-    local build_manifest_response=$(curl -H 'Cache-Control: no-cache' -sk "$manifest_url?$UNIQ")	
+    local build_manifest_response=$(curl --connect-timeout 5 --max-time 15 -H 'Cache-Control: no-cache' -sk "$manifest_url?$UNIQ")
+
 
     if [[ -z "$build_manifest_response" ]]; then
         lecho_err "Failed to fetch build manifest."
@@ -6231,19 +6246,20 @@ load_configuration()
 		MANIFEST_URL=$(echo "$ARCHIVES_JSON" | grep -A 3 "\"$CLOUDISENSE_VERSION\"" | grep '"manifest"' | sed -E 's/.*"manifest": *"(.*)".*/\1/')
 
 		if [ -n "$MANIFEST_URL" ]; then
-			PROGRAM_MANIFEST_LOCATION="$MANIFEST_URL"
+			BUILD_MANIFEST_LOCATION="$MANIFEST_URL"
 		else
 			lecho_err "Version $CLOUDISENSE_VERSION not found in archives.json. Installation will abort."
 			exit 1
 		fi
+
+	else
+
+		if [ -z ${PROGRAM_MANIFEST_LOCATION+x} ]; then 
+			PROGRAM_MANIFEST_LOCATION=$(echo 'aHR0cHM6Ly9jbG91ZGlzZW5zZS5zMy51cy1lYXN0LTEuYW1hem9uYXdzLmNvbS9tYW5pZmVzdC5qc29u' | base64 --decode)
+		fi
 	fi
 
 	
-	if [ -z ${PROGRAM_MANIFEST_LOCATION+x} ]; then 
-		PROGRAM_MANIFEST_LOCATION=$(echo 'aHR0cHM6Ly9jbG91ZGlzZW5zZS5zMy51cy1lYXN0LTEuYW1hem9uYXdzLmNvbS9tYW5pZmVzdC5qc29u' | base64 --decode)
-	fi
-	
-
 	PROGRAM_INSTALLATION_REPORT_FILE="$DEFAULT_PROGRAM_PATH/$PROGRAM_INSTALL_REPORT_NAME"
 	PROGRAM_ARCHIVE_NAME="$PROGRAM_NAME.zip"
 	PROGRAM_SERVICE_NAME="$PROGRAM_NAME.service"
