@@ -6218,8 +6218,6 @@ load_configuration()
 	    ARCHIVES_URL=$(echo 'aHR0cHM6Ly9jbG91ZGlzZW5zZS5zMy51cy1lYXN0LTEuYW1hem9uYXdzLmNvbS9hcmNoaXZlcy5qc29u' | base64 --decode)
 		lecho "Checking archives manifest from $ARCHIVES_URL"
 
-		echo "ARCHIVES_URL = $ARCHIVES_URL" && exit 1
-
 		if ! ARCHIVES_JSON=$(curl -s --fail "$ARCHIVES_URL"); then
 			lecho_err "Unable to fetch information about requested version: $CLOUDISENSE_VERSION"
 			exit 1
