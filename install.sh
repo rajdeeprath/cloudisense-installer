@@ -6212,7 +6212,7 @@ load_configuration()
 	[ ! -d foo ] && mkdir -p "$PROGRAM_DEFAULT_DOWNLOAD_FOLDER" && chmod ugo+w "$PROGRAM_DEFAULT_DOWNLOAD_FOLDER"
 
 	
-	echo "CLOUDISENSE_VERSION = $CLOUDISENSE_VERSION" && exit 1
+	echo "PROGRAM_INSTALL_AS_SERVICE = $PROGRAM_INSTALL_AS_SERVICE | CLOUDISENSE_VERSION = $CLOUDISENSE_VERSION" && exit 1
 
 	
 	# Check if CLOUDISENSE_VERSION is set -> If set, fetch archives manifest and resolve version-specific manifest URL
