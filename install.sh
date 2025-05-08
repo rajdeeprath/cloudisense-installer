@@ -55,6 +55,7 @@ PROGRAM_UPDATE_CRON_HOUR=11
 PROGRAM_SUPPORTED_INTERPRETERS=
 PROGRAM_HASH=
 CLIENT_INSTALL=
+CLOUDISENSE_VERSION=
 
 
 # LOGGING
@@ -6209,6 +6210,29 @@ load_configuration()
 
 	PROGRAM_DEFAULT_DOWNLOAD_FOLDER="$CURRENT_DIRECTORY/$PROGRAM_DEFAULT_DOWNLOAD_FOLDER_NAME"
 	[ ! -d foo ] && mkdir -p "$PROGRAM_DEFAULT_DOWNLOAD_FOLDER" && chmod ugo+w "$PROGRAM_DEFAULT_DOWNLOAD_FOLDER"
+
+	
+	# Check if CLOUDISENSE_VERSION is set -> If set, fetch archives manifest and resolve version-specific manifest URL
+	if [ -n "$CLOUDISENSE_VERSION" ]; then
+		lecho "CLOUDISENSE_VERSION is set to: $CLOUDISENSE_VERSION"
+		
+	    ARCHIVES_URL=$(echo 'aHR0cHM6Ly9jbG91ZGlzZW5zZS5zMy51cy1lYXN0LTEuYW1hem9uYXdzLmNvbS9hcmNoaXZlcy5qc29u' | base64 --decode)
+		lecho "Checking archives manifest from $ARCHIVES_URL"
+
+		if ! ARCHIVES_JSON=$(curl -s --fail "$ARCHIVES_URL"); then
+			lecho_err "Unable to fetch information about requested version: $CLOUDISENSE_VERSION"
+			exit 1
+    	fi
+
+		MANIFEST_URL=$(echo "$ARCHIVES_JSON" | grep -A 3 "\"$CLOUDISENSE_VERSION\"" | grep '"manifest"' | sed -E 's/.*"manifest": *"(.*)".*/\1/')
+
+		if [ -n "$MANIFEST_URL" ]; then
+			PROGRAM_MANIFEST_LOCATION="$MANIFEST_URL"
+		else
+			lecho_err "Version $CLOUDISENSE_VERSION not found in archives.json. Installation will abort."
+			exit 1
+		fi
+	fi
 
 	
 	if [ -z ${PROGRAM_MANIFEST_LOCATION+x} ]; then 
